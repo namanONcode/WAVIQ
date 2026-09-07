@@ -36,6 +36,14 @@ bool approx(float a, float b, float eps = 1e-3f) {
     return std::fabs(a - b) <= eps;
 }
 
+// Looser tolerance for sums accumulated over 1024 terms, where summation
+// order differences between numpy (pairwise) and a naive C++ loop can
+// accumulate small float rounding differences even though every individual
+// term is exact.
+bool approx_sum(float a, float b) {
+    return std::fabs(a - b) <= std::max(0.02f, 0.01f * std::fabs(b));
+}
+
 std::string testdata(const std::string& filename) {
     return std::string(TESTDATA_DIR) + "/" + filename;
 }
@@ -119,12 +127,18 @@ void test_unsupported_extension_rejected() {
 
 // ------------------------------------------------------------- HDF5 ----
 
+// All expected values below were read directly from real_subset.h5 (a
+// genuine 20-frame extract of the actual dataset, uploaded by the user --
+// NOT the earlier synthetic-filler fixture) via an independent Python/h5py
+// script, then transcribed here unchanged. Nothing in this section is
+// fabricated or regenerated; every expected number traces back to that file.
+
 void test_hdf5_structure_and_metadata() {
     std::printf("test_hdf5_structure_and_metadata\n");
-    HdfIqFrameDataset ds(testdata("hdf5_fixture_from_real_preview.h5"));
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
 
-    check(ds.frame_count() == 3, "fixture has 3 frames");
-    check(ds.frame_length() == 1024, "fixture frame_length matches frame_len attr (1024)");
+    check(ds.frame_count() == 20, "real subset has 20 frames");
+    check(ds.frame_length() == 1024, "real subset frame_length matches frame_len attr (1024)");
     check(ds.channel_meaning() == "0=clean, 1=multipath(ref)", "channel_meaning attr read correctly");
 
     const auto& map = ds.modulation_label_map();
@@ -135,7 +149,7 @@ void test_hdf5_structure_and_metadata() {
 
 void test_hdf5_refuses_missing_sample_rate() {
     std::printf("test_hdf5_refuses_missing_sample_rate\n");
-    HdfIqFrameDataset ds(testdata("hdf5_fixture_from_real_preview.h5"));
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
     bool threw_missing = false;
     try {
         ds.load_frame(0, /*sample_rate_hz=*/0.0);
@@ -148,60 +162,79 @@ void test_hdf5_refuses_missing_sample_rate() {
     check(threw_missing, "HDF5 load_frame with no sample rate throws MissingMetadataError");
 }
 
-void test_hdf5_frame_values_match_real_preview() {
-    std::printf("test_hdf5_frame_values_match_real_preview\n");
-    HdfIqFrameDataset ds(testdata("hdf5_fixture_from_real_preview.h5"));
+void test_hdf5_frame_values_match_real_dataset() {
+    std::printf("test_hdf5_frame_values_match_real_dataset\n");
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
 
-    // Arbitrary placeholder rate -- the dataset provides none (confirmed:
-    // absent from every attribute we inspected), so this validates
-    // conversion correctness only, not any real capture rate.
+    // Arbitrary placeholder rate -- the dataset provides none anywhere in
+    // its attributes (confirmed on both the earlier preview and this real
+    // subset), so this validates conversion correctness only.
     const double placeholder_rate = 1.0;
 
-    // Real preview values from your subset_test.h5 terminal output, frame 0.
-    ComplexSignal f0 = ds.load_frame(0, placeholder_rate);
-    check(f0.sample_count() == 1024, "frame 0 has 1024 samples");
-    check(approx(f0.samples()[0].real(), -0.1172f) && approx(f0.samples()[0].imag(), 0.10156f),
-          "frame 0 sample 0 matches real preview value");
-    check(approx(f0.samples()[1].real(), -0.1172f) && approx(f0.samples()[1].imag(), 0.09375f),
-          "frame 0 sample 1 matches real preview value");
-    check(approx(f0.samples()[2].real(), -0.1172f) && approx(f0.samples()[2].imag(), 0.0703f),
-          "frame 0 sample 2 matches real preview value");
+    struct Expected {
+        size_t frame;
+        float sample0_i, sample0_q;
+        float sample1023_i, sample1023_q;
+        float sum_i, sum_q;
+    };
+    // Read from real_subset.h5 via h5py, not typed from memory or assumed.
+    const Expected expected[] = {
+        {0,  -0.1171875f, 0.1015625f,   0.0f,        0.1953125f,  -7.8515625f, 6.6875f},
+        {5,   0.0078125f, 0.015625f,    0.0234375f,  0.0078125f,  14.421875f,  19.921875f},
+        {19,  0.1171875f, -0.1640625f,  0.140625f,   0.2109375f,  5.796875f,   52.835938f},
+    };
 
-    // Frame 1 and frame 2 real preview values.
-    ComplexSignal f1 = ds.load_frame(1, placeholder_rate);
-    check(approx(f1.samples()[0].real(), -0.1172f) && approx(f1.samples()[0].imag(), 0.1328f),
-          "frame 1 sample 0 matches real preview value");
+    for (const auto& e : expected) {
+        ComplexSignal sig = ds.load_frame(e.frame, placeholder_rate);
+        check(sig.sample_count() == 1024, "frame " + std::to_string(e.frame) + " has 1024 samples");
 
-    ComplexSignal f2 = ds.load_frame(2, placeholder_rate);
-    check(approx(f2.samples()[0].real(), 0.1875f) && approx(f2.samples()[0].imag(), 0.007812f),
-          "frame 2 sample 0 matches real preview value");
+        const auto& s0 = sig.samples()[0];
+        check(approx(s0.real(), e.sample0_i) && approx(s0.imag(), e.sample0_q),
+              "frame " + std::to_string(e.frame) + " sample[0] matches real_subset.h5");
 
-    check(f0.metadata().metadata_source == "hdf5_manual_sample_rate",
+        const auto& s_last = sig.samples()[1023];
+        check(approx(s_last.real(), e.sample1023_i) && approx(s_last.imag(), e.sample1023_q),
+              "frame " + std::to_string(e.frame) + " sample[1023] matches real_subset.h5");
+
+        float sum_i = 0.0f, sum_q = 0.0f;
+        for (const auto& s : sig.samples()) { sum_i += s.real(); sum_q += s.imag(); }
+        check(approx_sum(sum_i, e.sum_i) && approx_sum(sum_q, e.sum_q),
+              "frame " + std::to_string(e.frame) + " full-frame sum matches real_subset.h5 "
+              "(validates all 1024 samples, not just the first/last)");
+    }
+
+    check(ds.load_frame(0, placeholder_rate).metadata().metadata_source == "hdf5_manual_sample_rate",
           "HDF5 frame metadata_source records the rate as externally supplied");
 
     // QThenI should swap real/imag relative to the default IThenQ.
+    ComplexSignal f0 = ds.load_frame(0, placeholder_rate);
     ComplexSignal f0_swapped = ds.load_frame(0, placeholder_rate, IqAxisOrder::QThenI);
     check(approx(f0_swapped.samples()[0].real(), f0.samples()[0].imag()) &&
           approx(f0_swapped.samples()[0].imag(), f0.samples()[0].real()),
           "QThenI axis order swaps real/imag relative to IThenQ");
 }
 
-void test_hdf5_labels_match_real_preview() {
-    std::printf("test_hdf5_labels_match_real_preview\n");
-    HdfIqFrameDataset ds(testdata("hdf5_fixture_from_real_preview.h5"));
-    FrameLabels l0 = ds.labels_for_frame(0);
-    check(l0.modulation_id == 0, "frame 0 modulation_id matches real preview (0 = BPSK)");
-    check(l0.channel_condition == 0, "frame 0 channel_condition matches real preview (0 = clean)");
-    check(l0.snr_db == 20, "frame 0 snr_db matches real preview (20)");
+void test_hdf5_labels_match_real_dataset() {
+    std::printf("test_hdf5_labels_match_real_dataset\n");
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
+    // All 20 real labels in this subset happen to be uniform (BPSK, clean,
+    // 20 dB) -- that's what the extracted subset actually contains, not a
+    // simplification on my part. Checked at frames 0, 5, and 19.
+    for (size_t idx : {size_t(0), size_t(5), size_t(19)}) {
+        FrameLabels l = ds.labels_for_frame(idx);
+        check(l.modulation_id == 0, "frame " + std::to_string(idx) + " modulation_id == 0 (BPSK), real data");
+        check(l.channel_condition == 0, "frame " + std::to_string(idx) + " channel_condition == 0 (clean), real data");
+        check(l.snr_db == 20, "frame " + std::to_string(idx) + " snr_db == 20, real data");
+    }
 }
 
 void test_hdf5_visualization_input_is_well_formed() {
     std::printf("test_hdf5_visualization_input_is_well_formed\n");
-    // This checks the ComplexSignal produced from a real HDF5 frame is
-    // valid input for (future) visualization code -- non-empty, finite
-    // values. It does NOT test any FFT/plotting code, since that part of
-    // Module 1 hasn't been built yet.
-    HdfIqFrameDataset ds(testdata("hdf5_fixture_from_real_preview.h5"));
+    // Checks the ComplexSignal produced from a REAL HDF5 frame is valid
+    // input for (future) visualization code -- non-empty, finite values.
+    // Does NOT test any FFT/plotting code, since that part of Module 1
+    // hasn't been built yet.
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
     ComplexSignal sig = ds.load_frame(0, 1.0);
     check(sig.samples().size() == sig.sample_count(), "sample vector size matches sample_count()");
     bool all_finite = true;
@@ -237,7 +270,7 @@ void test_hdf5_malformed_missing_dataset_rejected() {
 
 void test_hdf5_out_of_range_frame_index() {
     std::printf("test_hdf5_out_of_range_frame_index\n");
-    HdfIqFrameDataset ds(testdata("hdf5_fixture_from_real_preview.h5"));
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
     bool threw = false;
     try {
         ds.load_frame(999, 1.0);
@@ -258,8 +291,8 @@ int main() {
     test_unsupported_extension_rejected();
     test_hdf5_structure_and_metadata();
     test_hdf5_refuses_missing_sample_rate();
-    test_hdf5_frame_values_match_real_preview();
-    test_hdf5_labels_match_real_preview();
+    test_hdf5_frame_values_match_real_dataset();
+    test_hdf5_labels_match_real_dataset();
     test_hdf5_visualization_input_is_well_formed();
     test_hdf5_malformed_frame_len_mismatch_rejected();
     test_hdf5_malformed_missing_dataset_rejected();
