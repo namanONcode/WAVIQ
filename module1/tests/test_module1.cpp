@@ -460,7 +460,7 @@ void test_hdf5_labels_match_real_dataset() {
     // All 20 real labels in this subset happen to be uniform (BPSK, clean,
     // 20 dB) -- that's what the extracted subset actually contains, not a
     // simplification on my part. Checked at frames 0, 5, and 19.
-    for (size_t idx : {size_t(0), size_t(5), size_t(19)}) {
+    for (size_t idx = 0; idx < ds.frame_count(); ++idx) {
         FrameLabels l = ds.labels_for_frame(idx);
         check(l.modulation_id == 0, "frame " + std::to_string(idx) + " modulation_id == 0 (BPSK), real data");
         check(l.channel_condition == 0, "frame " + std::to_string(idx) + " channel_condition == 0 (clean), real data");
