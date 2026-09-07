@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "module1/Float16.h"
@@ -13,80 +14,120 @@ namespace module1 {
 
 namespace {
 
+// RAII wrapper for HDF5 hid_t identifiers to guarantee deterministic,
+// exception-safe handle closure without resource leaks.
+class HdfHandle {
+public:
+    using Closer = herr_t (*)(hid_t);
+
+    HdfHandle() : id_(-1), closer_(nullptr) {}
+    HdfHandle(hid_t id, Closer closer) : id_(id), closer_(closer) {}
+    ~HdfHandle() { reset(); }
+
+    HdfHandle(const HdfHandle&) = delete;
+    HdfHandle& operator=(const HdfHandle&) = delete;
+
+    HdfHandle(HdfHandle&& other) noexcept : id_(other.id_), closer_(other.closer_) {
+        other.id_ = -1;
+        other.closer_ = nullptr;
+    }
+
+    HdfHandle& operator=(HdfHandle&& other) noexcept {
+        if (this != &other) {
+            reset();
+            id_ = other.id_;
+            closer_ = other.closer_;
+            other.id_ = -1;
+            other.closer_ = nullptr;
+        }
+        return *this;
+    }
+
+    hid_t get() const { return id_; }
+    bool is_valid() const { return id_ >= 0; }
+    explicit operator bool() const { return is_valid(); }
+
+    void reset(hid_t new_id = -1, Closer new_closer = nullptr) {
+        if (id_ >= 0 && closer_) {
+            closer_(id_);
+        }
+        id_ = new_id;
+        closer_ = new_closer;
+    }
+
+private:
+    hid_t id_ = -1;
+    Closer closer_ = nullptr;
+};
+
+HdfHandle make_dataset_handle(hid_t id) { return HdfHandle(id, H5Dclose); }
+HdfHandle make_space_handle(hid_t id)   { return HdfHandle(id, H5Sclose); }
+HdfHandle make_type_handle(hid_t id)    { return HdfHandle(id, H5Tclose); }
+HdfHandle make_attr_handle(hid_t id)    { return HdfHandle(id, H5Aclose); }
+
 // Reads a scalar string attribute, handling both fixed-length and
-// variable-length HDF5 string encodings (h5py can produce either
-// depending on version/how the attribute was written -- we don't assume).
+// variable-length HDF5 string encodings.
 std::string read_string_attr(hid_t obj_id, const char* name) {
     if (!H5Aexists(obj_id, name)) {
-        throw UnsupportedFormatError(std::string("Missing required attribute: ") + name);
+        throw Hdf5MalformedDatasetError(std::string("Missing required attribute: ") + name);
     }
-    hid_t attr = H5Aopen(obj_id, name, H5P_DEFAULT);
-    if (attr < 0) {
-        throw UnsupportedFormatError(std::string("Could not open attribute: ") + name);
+    HdfHandle attr = make_attr_handle(H5Aopen(obj_id, name, H5P_DEFAULT));
+    if (!attr) {
+        throw Hdf5MalformedDatasetError(std::string("Could not open attribute: ") + name);
     }
-    hid_t type = H5Aget_type(attr);
+    HdfHandle type = make_type_handle(H5Aget_type(attr.get()));
     std::string result;
 
-    if (H5Tis_variable_str(type) > 0) {
+    if (H5Tis_variable_str(type.get()) > 0) {
         char* raw = nullptr;
-        if (H5Aread(attr, type, &raw) < 0) {
-            H5Tclose(type);
-            H5Aclose(attr);
-            throw UnsupportedFormatError(std::string("Could not read variable-length attribute: ") + name);
+        if (H5Aread(attr.get(), type.get(), &raw) < 0) {
+            throw Hdf5MalformedDatasetError(std::string("Could not read variable-length attribute: ") + name);
         }
         if (raw) result = raw;
         H5free_memory(raw);
     } else {
-        const size_t size = H5Tget_size(type);
+        const size_t size = H5Tget_size(type.get());
         std::vector<char> buf(size + 1, '\0');
-        if (H5Aread(attr, type, buf.data()) < 0) {
-            H5Tclose(type);
-            H5Aclose(attr);
-            throw UnsupportedFormatError(std::string("Could not read fixed-length attribute: ") + name);
+        if (H5Aread(attr.get(), type.get(), buf.data()) < 0) {
+            throw Hdf5MalformedDatasetError(std::string("Could not read fixed-length attribute: ") + name);
         }
         result.assign(buf.data(), size);
-        // Trim trailing NULs some writers pad fixed-length strings with.
         const auto nul_pos = result.find('\0');
         if (nul_pos != std::string::npos) result.resize(nul_pos);
     }
 
-    H5Tclose(type);
-    H5Aclose(attr);
     return result;
 }
 
 int64_t read_int64_attr(hid_t obj_id, const char* name) {
     if (!H5Aexists(obj_id, name)) {
-        throw UnsupportedFormatError(std::string("Missing required attribute: ") + name);
+        throw Hdf5MalformedDatasetError(std::string("Missing required attribute: ") + name);
     }
-    hid_t attr = H5Aopen(obj_id, name, H5P_DEFAULT);
-    if (attr < 0) {
-        throw UnsupportedFormatError(std::string("Could not open attribute: ") + name);
+    HdfHandle attr = make_attr_handle(H5Aopen(obj_id, name, H5P_DEFAULT));
+    if (!attr) {
+        throw Hdf5MalformedDatasetError(std::string("Could not open attribute: ") + name);
     }
     int64_t value = 0;
-    const herr_t status = H5Aread(attr, H5T_NATIVE_INT64, &value);
-    H5Aclose(attr);
+    const herr_t status = H5Aread(attr.get(), H5T_NATIVE_INT64, &value);
     if (status < 0) {
-        throw UnsupportedFormatError(std::string("Could not read integer attribute: ") + name);
+        throw Hdf5MalformedDatasetError(std::string("Could not read integer attribute: ") + name);
     }
     return value;
 }
 
-// Reads the full extent (dims) of a dataset given its name. Throws
-// UnsupportedFormatError if the dataset is missing.
-std::vector<hsize_t> dataset_dims(hid_t file_id, const char* name, hid_t& out_dset) {
+// Reads the dimensions of a dataset given its name.
+std::vector<hsize_t> dataset_dims(hid_t file_id, const char* name) {
     if (!H5Lexists(file_id, name, H5P_DEFAULT)) {
-        throw UnsupportedFormatError(std::string("Missing required dataset: ") + name);
+        throw Hdf5MalformedDatasetError(std::string("Missing required dataset: ") + name);
     }
-    out_dset = H5Dopen2(file_id, name, H5P_DEFAULT);
-    if (out_dset < 0) {
-        throw UnsupportedFormatError(std::string("Could not open dataset: ") + name);
+    HdfHandle dset = make_dataset_handle(H5Dopen2(file_id, name, H5P_DEFAULT));
+    if (!dset) {
+        throw Hdf5MalformedDatasetError(std::string("Could not open dataset: ") + name);
     }
-    hid_t space = H5Dget_space(out_dset);
-    const int rank = H5Sget_simple_extent_ndims(space);
+    HdfHandle space = make_space_handle(H5Dget_space(dset.get()));
+    const int rank = H5Sget_simple_extent_ndims(space.get());
     std::vector<hsize_t> dims(static_cast<size_t>(rank));
-    H5Sget_simple_extent_dims(space, dims.data(), nullptr);
-    H5Sclose(space);
+    H5Sget_simple_extent_dims(space.get(), dims.data(), nullptr);
     return dims;
 }
 
@@ -109,35 +150,43 @@ HdfIqFrameDataset::HdfIqFrameDataset(const std::string& path) : path_(path) {
         try {
             j = nlohmann::json::parse(mod2id_json);
         } catch (const nlohmann::json::parse_error& e) {
-            throw UnsupportedFormatError("mod2id_json attribute is not valid JSON: " + std::string(e.what()));
+            throw Hdf5MalformedDatasetError("mod2id_json attribute is not valid JSON: " + std::string(e.what()));
         }
         for (auto it = j.begin(); it != j.end(); ++it) {
             modulation_label_map_[it.key()] = it.value().get<int>();
         }
 
-        // Validate /X against the file's own frame_len attribute and its
-        // own shape, rather than trusting either alone.
-        hid_t x_dset = -1;
-        std::vector<hsize_t> x_dims = dataset_dims(file_id_, "X", x_dset);
-        if (x_dims.size() != 3 || x_dims[2] != 2) {
-            H5Dclose(x_dset);
-            throw UnsupportedFormatError(
-                "/X does not have the expected [frames, samples, 2] shape in: " + path);
-        }
-        if (static_cast<int64_t>(x_dims[1]) != frame_len_attr) {
-            H5Dclose(x_dset);
-            throw UnsupportedFormatError(
-                "/X's per-frame sample count (" + std::to_string(x_dims[1]) +
-                ") does not match the file's frame_len attribute (" +
-                std::to_string(frame_len_attr) + ") in: " + path);
-        }
-        hid_t x_type = H5Dget_type(x_dset);
-        const bool x_is_float16 = (H5Tget_class(x_type) == H5T_FLOAT) && (H5Tget_size(x_type) == 2);
-        H5Tclose(x_type);
-        H5Dclose(x_dset);
-        if (!x_is_float16) {
-            throw UnsupportedFormatError(
-                "/X is not a 2-byte floating point dataset (expected float16) in: " + path);
+        // Validate /X against the file's own frame_len attribute and its own shape
+        std::vector<hsize_t> x_dims;
+        {
+            if (!H5Lexists(file_id_, "X", H5P_DEFAULT)) {
+                throw Hdf5MalformedDatasetError(std::string("Missing required dataset: X"));
+            }
+            HdfHandle x_dset = make_dataset_handle(H5Dopen2(file_id_, "X", H5P_DEFAULT));
+            if (!x_dset) {
+                throw Hdf5MalformedDatasetError(std::string("Could not open dataset: X"));
+            }
+            HdfHandle space = make_space_handle(H5Dget_space(x_dset.get()));
+            const int rank = H5Sget_simple_extent_ndims(space.get());
+            x_dims.resize(static_cast<size_t>(rank));
+            H5Sget_simple_extent_dims(space.get(), x_dims.data(), nullptr);
+
+            if (x_dims.size() != 3 || x_dims[2] != 2) {
+                throw Hdf5MalformedDatasetError(
+                    "/X does not have the expected [frames, samples, 2] shape in: " + path);
+            }
+            if (static_cast<int64_t>(x_dims[1]) != frame_len_attr) {
+                throw Hdf5MalformedDatasetError(
+                    "/X's per-frame sample count (" + std::to_string(x_dims[1]) +
+                    ") does not match the file's frame_len attribute (" +
+                    std::to_string(frame_len_attr) + ") in: " + path);
+            }
+            HdfHandle x_type = make_type_handle(H5Dget_type(x_dset.get()));
+            const bool x_is_float16 = (H5Tget_class(x_type.get()) == H5T_FLOAT) && (H5Tget_size(x_type.get()) == 2);
+            if (!x_is_float16) {
+                throw Hdf5MalformedDatasetError(
+                    "/X is not a 2-byte floating point dataset (expected float16) in: " + path);
+            }
         }
 
         frame_count_ = static_cast<size_t>(x_dims[0]);
@@ -145,11 +194,9 @@ HdfIqFrameDataset::HdfIqFrameDataset(const std::string& path) : path_(path) {
 
         // Cross-check the three label datasets exist and agree on frame count.
         for (const char* name : {"y_chan", "y_mod", "y_snr"}) {
-            hid_t d = -1;
-            std::vector<hsize_t> dims = dataset_dims(file_id_, name, d);
-            H5Dclose(d);
+            std::vector<hsize_t> dims = dataset_dims(file_id_, name);
             if (dims.size() != 1 || dims[0] != x_dims[0]) {
-                throw UnsupportedFormatError(
+                throw Hdf5MalformedDatasetError(
                     std::string("/") + name + " shape does not match /X's frame count in: " + path);
             }
         }
@@ -159,7 +206,42 @@ HdfIqFrameDataset::HdfIqFrameDataset(const std::string& path) : path_(path) {
     }
 }
 
-HdfIqFrameDataset::~HdfIqFrameDataset() { close(); }
+HdfIqFrameDataset::~HdfIqFrameDataset() {
+    close();
+}
+
+HdfIqFrameDataset::HdfIqFrameDataset(HdfIqFrameDataset&& other) noexcept
+    : path_(std::move(other.path_)),
+      file_id_(other.file_id_),
+      frame_count_(other.frame_count_),
+      frame_length_(other.frame_length_),
+      channel_meaning_(std::move(other.channel_meaning_)),
+      source_attr_(std::move(other.source_attr_)),
+      subset_name_(std::move(other.subset_name_)),
+      modulation_label_map_(std::move(other.modulation_label_map_)) {
+    other.file_id_ = -1;
+    other.frame_count_ = 0;
+    other.frame_length_ = 0;
+}
+
+HdfIqFrameDataset& HdfIqFrameDataset::operator=(HdfIqFrameDataset&& other) noexcept {
+    if (this != &other) {
+        close();
+        path_ = std::move(other.path_);
+        file_id_ = other.file_id_;
+        frame_count_ = other.frame_count_;
+        frame_length_ = other.frame_length_;
+        channel_meaning_ = std::move(other.channel_meaning_);
+        source_attr_ = std::move(other.source_attr_);
+        subset_name_ = std::move(other.subset_name_);
+        modulation_label_map_ = std::move(other.modulation_label_map_);
+
+        other.file_id_ = -1;
+        other.frame_count_ = 0;
+        other.frame_length_ = 0;
+    }
+    return *this;
+}
 
 void HdfIqFrameDataset::close() {
     if (file_id_ >= 0) {
@@ -170,23 +252,19 @@ void HdfIqFrameDataset::close() {
 
 FrameLabels HdfIqFrameDataset::labels_for_frame(size_t frame_index) const {
     if (frame_index >= frame_count_) {
-        throw std::out_of_range("frame_index " + std::to_string(frame_index) +
-                                 " out of range (frame_count = " + std::to_string(frame_count_) + ")");
+        throw FrameIndexOutOfRangeError(frame_index, frame_count_);
     }
 
     FrameLabels labels;
 
     auto read_scalar = [&](const char* name, hid_t mem_type, void* out) {
-        hid_t dset = H5Dopen2(file_id_, name, H5P_DEFAULT);
-        hid_t space = H5Dget_space(dset);
+        HdfHandle dset = make_dataset_handle(H5Dopen2(file_id_, name, H5P_DEFAULT));
+        HdfHandle space = make_space_handle(H5Dget_space(dset.get()));
         hsize_t start = frame_index;
         hsize_t count = 1;
-        H5Sselect_hyperslab(space, H5S_SELECT_SET, &start, nullptr, &count, nullptr);
-        hid_t mem_space = H5Screate_simple(1, &count, nullptr);
-        H5Dread(dset, mem_type, mem_space, space, H5P_DEFAULT, out);
-        H5Sclose(mem_space);
-        H5Sclose(space);
-        H5Dclose(dset);
+        H5Sselect_hyperslab(space.get(), H5S_SELECT_SET, &start, nullptr, &count, nullptr);
+        HdfHandle mem_space = make_space_handle(H5Screate_simple(1, &count, nullptr));
+        H5Dread(dset.get(), mem_type, mem_space.get(), space.get(), H5P_DEFAULT, out);
     };
 
     int16_t mod_val = 0;
@@ -204,8 +282,7 @@ FrameLabels HdfIqFrameDataset::labels_for_frame(size_t frame_index) const {
 
 ComplexSignal HdfIqFrameDataset::load_frame(size_t frame_index, double sample_rate_hz, IqAxisOrder order) const {
     if (frame_index >= frame_count_) {
-        throw std::out_of_range("frame_index " + std::to_string(frame_index) +
-                                 " out of range (frame_count = " + std::to_string(frame_count_) + ")");
+        throw FrameIndexOutOfRangeError(frame_index, frame_count_);
     }
     if (sample_rate_hz <= 0.0) {
         throw MissingMetadataError(
@@ -214,24 +291,17 @@ ComplexSignal HdfIqFrameDataset::load_frame(size_t frame_index, double sample_ra
             {"sample_rate"});
     }
 
-    hid_t x_dset = H5Dopen2(file_id_, "X", H5P_DEFAULT);
-    hid_t x_type = H5Dget_type(x_dset); // the file's actual 2-byte float type -- used as-is for the
-                                         // memory type too, so HDF5 performs a raw byte copy with NO
-                                         // type conversion (see Float16.h for why that matters).
-    hid_t space = H5Dget_space(x_dset);
+    HdfHandle x_dset = make_dataset_handle(H5Dopen2(file_id_, "X", H5P_DEFAULT));
+    HdfHandle x_type = make_type_handle(H5Dget_type(x_dset.get()));
+    HdfHandle space = make_space_handle(H5Dget_space(x_dset.get()));
 
     hsize_t start[3] = {static_cast<hsize_t>(frame_index), 0, 0};
     hsize_t count[3] = {1, static_cast<hsize_t>(frame_length_), 2};
-    H5Sselect_hyperslab(space, H5S_SELECT_SET, start, nullptr, count, nullptr);
-    hid_t mem_space = H5Screate_simple(3, count, nullptr);
+    H5Sselect_hyperslab(space.get(), H5S_SELECT_SET, start, nullptr, count, nullptr);
+    HdfHandle mem_space = make_space_handle(H5Screate_simple(3, count, nullptr));
 
     std::vector<uint16_t> raw(frame_length_ * 2);
-    const herr_t status = H5Dread(x_dset, x_type, mem_space, space, H5P_DEFAULT, raw.data());
-
-    H5Sclose(mem_space);
-    H5Sclose(space);
-    H5Tclose(x_type);
-    H5Dclose(x_dset);
+    const herr_t status = H5Dread(x_dset.get(), x_type.get(), mem_space.get(), space.get(), H5P_DEFAULT, raw.data());
 
     if (status < 0) {
         throw FileIOError("Failed to read frame " + std::to_string(frame_index) + " from: " + path_);
@@ -255,15 +325,10 @@ ComplexSignal HdfIqFrameDataset::load_frame(size_t frame_index, double sample_ra
     metadata.sample_datatype = "float16(source)->float32";
     metadata.channel_count = 2;
     metadata.is_complex = true;
-    metadata.iq_arrangement = IqArrangement::InterleavedIQ; // closest existing fit; not literally
-                                                              // interleaved bytes on disk, but the
-                                                              // same "paired I/Q per sample" shape
-    metadata.byte_order = ByteOrder::Little; // not meaningful for this source -- HDF5 abstracts
-                                              // on-disk byte order internally; kept at the default
-                                              // since this field doesn't apply here
+    metadata.iq_arrangement = IqArrangement::InterleavedIQ;
+    metadata.byte_order = ByteOrder::Little;
     metadata.source_path = path_ + "#frame" + std::to_string(frame_index);
-    metadata.metadata_source = "hdf5_manual_sample_rate"; // sample rate was supplied by the caller,
-                                                            // never read from the file
+    metadata.metadata_source = "hdf5_manual_sample_rate";
 
     return ComplexSignal(std::move(samples), std::move(metadata));
 }

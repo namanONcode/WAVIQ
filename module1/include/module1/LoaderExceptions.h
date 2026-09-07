@@ -21,6 +21,21 @@ public:
     explicit UnsupportedFormatError(const std::string& msg) : SignalLoaderError(msg) {}
 };
 
+// Raised when a file claims or appears to be a supported format, but its
+// internal structure, schema, header, or attributes are corrupt or malformed.
+// Distinct from UnsupportedFormatError (which means the format itself is not supported).
+class MalformedDataError : public SignalLoaderError {
+public:
+    explicit MalformedDataError(const std::string& msg) : SignalLoaderError(msg) {}
+};
+
+// Raised when an HDF5 dataset file fails schema validation (e.g. missing required
+// datasets or attributes, attribute/dimension mismatches, unparseable mod2id JSON).
+class Hdf5MalformedDatasetError : public MalformedDataError {
+public:
+    explicit Hdf5MalformedDatasetError(const std::string& msg) : MalformedDataError(msg) {}
+};
+
 // The file couldn't be opened/read (missing, permissions, truncated).
 class FileIOError : public SignalLoaderError {
 public:
@@ -41,6 +56,24 @@ public:
 
 private:
     std::vector<std::string> missing_fields_;
+};
+
+// Raised when attempting to access a dataset frame index outside the valid range [0, frame_count - 1].
+// Always carries the requested_index and frame_count as structured fields.
+class FrameIndexOutOfRangeError : public SignalLoaderError {
+public:
+    FrameIndexOutOfRangeError(size_t requested_index, size_t frame_count)
+        : SignalLoaderError("frame_index " + std::to_string(requested_index) +
+                            " out of range (frame_count = " + std::to_string(frame_count) + ")"),
+          requested_index_(requested_index),
+          frame_count_(frame_count) {}
+
+    size_t requested_index() const { return requested_index_; }
+    size_t frame_count() const { return frame_count_; }
+
+private:
+    size_t requested_index_ = 0;
+    size_t frame_count_ = 0;
 };
 
 } // namespace module1

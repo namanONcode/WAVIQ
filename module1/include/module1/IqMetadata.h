@@ -38,21 +38,31 @@ struct IqMetadataInput {
     }
 };
 
-// Looks for "<iq_path>.sigmf-meta" next to the given IQ file.
-// Returns std::nullopt if no sidecar file exists at that path (this is
-// not an error -- absence just means "fall back to manual entry").
-std::optional<std::string> find_sidecar_path_for(const std::string& iq_path);
+// Encapsulates discovery and parsing of SigMF metadata.
+class SigmfMetadataParser {
+public:
+    // Looks for "<iq_path>.sigmf-meta" next to the given IQ file.
+    // Returns std::nullopt if no sidecar file exists at that path.
+    static std::optional<std::string> find_sidecar_path(const std::string& iq_path);
 
-// Parses a SigMF-style sidecar JSON file (a "global" object containing
-// "core:sample_rate" and "core:datatype") into an IqMetadataInput.
-//
-// Supported core:datatype values: cf32_le, cf32_be, ci16_le, ci16_be, ci8.
-// (cu8 -- unsigned 8-bit -- is common on RTL-SDR captures but is not yet
-// in the supported-formats list; see IqMetadataParser.cpp for the mapping
-// table if that needs to be added later.)
-//
-// Throws FileIOError if the file can't be read, UnsupportedFormatError if
-// the JSON is malformed or core:datatype isn't one of the values above.
-IqMetadataInput parse_sigmf_sidecar(const std::string& sidecar_path);
+    // Parses a SigMF-style sidecar JSON file into an IqMetadataInput.
+    // Throws FileIOError if the file can't be read.
+    // Throws MalformedDataError if the JSON is malformed or missing required schema blocks.
+    // Throws UnsupportedFormatError if core:datatype is unsupported.
+    static IqMetadataInput parse_file(const std::string& sidecar_path);
+
+    // Parses SigMF metadata directly from a JSON string.
+    // Decouples schema parsing from filesystem I/O for unit testability.
+    static IqMetadataInput parse_json(const std::string& json_content, const std::string& provenance = "sigmf_sidecar");
+};
+
+// Backward-compatible free functions:
+inline std::optional<std::string> find_sidecar_path_for(const std::string& iq_path) {
+    return SigmfMetadataParser::find_sidecar_path(iq_path);
+}
+
+inline IqMetadataInput parse_sigmf_sidecar(const std::string& sidecar_path) {
+    return SigmfMetadataParser::parse_file(sidecar_path);
+}
 
 } // namespace module1

@@ -6,7 +6,7 @@
 
 namespace module1 {
 
-std::unique_ptr<ISignalLoader> make_loader_for(const std::string& path) {
+std::unique_ptr<ISignalLoader> LoaderFactory::create_loader(const std::string& path) {
     auto wav = std::make_unique<WavLoader>();
     if (wav->can_load(path)) {
         return wav;

@@ -15,6 +15,7 @@ find_package(HDF5 REQUIRED COMPONENTS C)
 add_library(module1_core
     src/WavLoader.cpp
     src/IqLoader.cpp
+    src/IqSampleDecoder.cpp
     src/IqMetadataParser.cpp
     src/LoaderFactory.cpp
     src/HdfIqFrameDataset.cpp

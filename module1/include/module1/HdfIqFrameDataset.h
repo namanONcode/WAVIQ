@@ -45,8 +45,13 @@ public:
     explicit HdfIqFrameDataset(const std::string& path);
     ~HdfIqFrameDataset();
 
+    // Copying disabled (owns an open HDF5 file descriptor).
     HdfIqFrameDataset(const HdfIqFrameDataset&) = delete;
     HdfIqFrameDataset& operator=(const HdfIqFrameDataset&) = delete;
+
+    // Movable following RAII Rule of Five.
+    HdfIqFrameDataset(HdfIqFrameDataset&& other) noexcept;
+    HdfIqFrameDataset& operator=(HdfIqFrameDataset&& other) noexcept;
 
     size_t frame_count() const { return frame_count_; }
     size_t frame_length() const { return frame_length_; }
@@ -55,10 +60,10 @@ public:
     const std::string& subset_name() const { return subset_name_; }
     const ModulationLabelMap& modulation_label_map() const { return modulation_label_map_; }
 
-    // Throws std::out_of_range if frame_index >= frame_count().
+    // Throws FrameIndexOutOfRangeError if frame_index >= frame_count().
     FrameLabels labels_for_frame(size_t frame_index) const;
 
-    // Throws std::out_of_range if frame_index >= frame_count().
+    // Throws FrameIndexOutOfRangeError if frame_index >= frame_count().
     // Throws MissingMetadataError if sample_rate_hz <= 0 -- see class
     // comment above; this file format never supplies one.
     ComplexSignal load_frame(size_t frame_index, double sample_rate_hz,
