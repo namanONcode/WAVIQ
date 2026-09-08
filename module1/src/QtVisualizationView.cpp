@@ -381,4 +381,20 @@ void QtVisualizationView::on_next_frame() {
     frame_spinbox_->setValue(std::min(frame_spinbox_->maximum(), frame_spinbox_->value() + 1));
 }
 
+// --- Module 3 Overrides (Stubs for now) ---
+void QtVisualizationView::render_decoded_bitstream(const std::vector<uint8_t>& payload) {
+    // In a complete implementation, this would plot the hex/binary stream in a hex editor widget.
+    qDebug() << "Module 3: Received payload of size:" << payload.size();
+}
+
+void QtVisualizationView::display_fec_metrics(float bit_error_rate, bool decode_success) {
+    // This would update a status bar or metric panel.
+    qDebug() << "Module 3: FEC Success:" << decode_success << "BER:" << bit_error_rate;
+}
+
+void QtVisualizationView::render_header_correlation(const std::vector<float>& correlation_metric) {
+    // This would be plotted similarly to a time-domain wave to show correlation peaks.
+    qDebug() << "Module 3: Received correlation metric of size:" << correlation_metric.size();
+}
+
 } // namespace module1

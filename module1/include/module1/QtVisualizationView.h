@@ -65,6 +65,12 @@ public:
     void render_waterfall(const std::vector<std::vector<float>>& spectrogram) override;
     void display_metadata(const SignalMetadata& metadata) override;
     void display_frame_info(const std::string& modulation_name, int channel_condition, int snr_db) override;
+    
+    // Module 3 overrides
+    void render_decoded_bitstream(const std::vector<uint8_t>& payload) override;
+    void display_fec_metrics(float bit_error_rate, bool decode_success) override;
+    void render_header_correlation(const std::vector<float>& correlation_metric) override;
+    
     void show_window() override;
 
 private slots:
