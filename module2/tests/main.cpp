@@ -14,6 +14,7 @@ void run_normalizer_tests();
 void run_filter_tests();
 void run_signaldetector_tests();
 void run_symbolrateestimator_tests();
+void runDataLoaderTests();
 
 int main() {
     std::cout << "Running Module 2 tests...\n";
@@ -23,6 +24,7 @@ int main() {
     run_filter_tests();
     run_signaldetector_tests();
     run_symbolrateestimator_tests();
+    runDataLoaderTests();
 
     std::cout << module2::test::g_checks << "/" << module2::test::g_checks << " checks passed (" 
               << (module2::test::g_failures == 0 ? "100% pass rate, 0 failures" : std::to_string(module2::test::g_failures) + " failures") 

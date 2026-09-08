@@ -8,13 +8,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Add include directory
 include_directories(include)
 
-# Use the manually downloaded FFTW3 directory
-include_directories("D:/SIH2K26/WAVIQ/fftw3")
+# Find FFTW3 libraries
+find_library(FFTW3_LIB NAMES fftw3 fftw3-3 HINTS "D:/SIH2K26/WAVIQ/fftw3")
+find_library(FFTW3F_LIB NAMES fftw3f fftw3f-3 HINTS "D:/SIH2K26/WAVIQ/fftw3")
 
 enable_testing()
 
 # Core Library
-# We will add more source files as we build them.
 add_library(SignalAnalyzerEngine 
     src/preprocessing/DCRemoval.cpp
     src/preprocessing/Normalizer.cpp
@@ -42,10 +42,10 @@ add_library(SignalAnalyzerEngine
     src/demod/FSKDemodulator.cpp
     src/demod/QAMDemodulator.cpp
 )
-target_include_directories(SignalAnalyzerEngine PUBLIC include "D:/SIH2K26/WAVIQ/fftw3")
+target_include_directories(SignalAnalyzerEngine PUBLIC include)
 target_link_libraries(SignalAnalyzerEngine PRIVATE 
-    "D:/SIH2K26/WAVIQ/fftw3/libfftw3-3.lib"
-    "D:/SIH2K26/WAVIQ/fftw3/libfftw3f-3.lib"
+    ${FFTW3_LIB}
+    ${FFTW3F_LIB}
 )
 
 # Test Executable
@@ -55,7 +55,14 @@ add_executable(SignalAnalyzerTests
     tests/FilterTests.cpp
     tests/SignalDetectorTests.cpp
     tests/SymbolRateEstimatorTests.cpp
+    tests/DataLoaderTests.cpp
     tests/main.cpp
 )
 target_include_directories(SignalAnalyzerTests PRIVATE include)
-target_link_libraries(SignalAnalyzerTests PRIVATE SignalAnalyzerEngine)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SNDFILE REQUIRED sndfile)
+target_include_directories(SignalAnalyzerTests PRIVATE ${SNDFILE_INCLUDE_DIRS})
+target_link_libraries(SignalAnalyzerTests PRIVATE SignalAnalyzerEngine ${SNDFILE_LIBRARIES})
+
+add_test(NAME SignalAnalyzerTests COMMAND SignalAnalyzerTests)

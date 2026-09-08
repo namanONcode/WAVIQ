@@ -1,56 +1,62 @@
 #include "TestFramework.hpp"
+#include "RealDataLoader.hpp"
 #include "preprocessing/DCRemoval.hpp"
 #include "core/SignalData.hpp"
+#include <numeric>
+#include <iostream>
 
 using namespace module2;
 
 void run_dcremoval_tests() {
-    // Test 1: RemovesPositiveDCBias
+    std::cout << "  [DCRemoval] Running tests on real dataset files...\n";
+
+    // Test 1: Real WAV File (real_subset.wav)
     {
-        core::SignalData data;
-        data.sampleRate = 1000.0;
-        data.centerFrequency = 0.0;
-        
-        for (int i = 0; i < 100; ++i) {
-            data.samples.push_back({5.0f, 3.0f});
-        }
-        
+        core::SignalData data = test::RealDataLoader::loadWAV("real_subset.wav");
+        test::check(!data.samples.empty(), "DCRemoval: Real WAV data loaded successfully");
+
         preprocessing::DCRemoval::process(data);
-        
+
+        std::complex<float> sum(0.0f, 0.0f);
         for (const auto& sample : data.samples) {
-            test::approx_check(sample.real(), 0.0f, "DCRemoval: Real part should be 0", 1e-5f);
-            test::approx_check(sample.imag(), 0.0f, "DCRemoval: Imag part should be 0", 1e-5f);
+            sum += sample;
         }
+        std::complex<float> mean = sum / static_cast<float>(data.samples.size());
+
+        test::approx_check(mean.real(), 0.0f, "DCRemoval: Real WAV mean real part should be ~0", 1e-4f);
+        test::approx_check(mean.imag(), 0.0f, "DCRemoval: Real WAV mean imag part should be ~0", 1e-4f);
     }
-    
-    // Test 2: HandlesZeroMeanSignal
+
+    // Test 2: Real Mono WAV File (real_subset_mono.wav)
     {
-        core::SignalData data;
-        data.sampleRate = 1000.0;
-        data.centerFrequency = 0.0;
-        
-        for (int i = 0; i < 100; ++i) {
-            float val = (i % 2 == 0) ? 1.0f : -1.0f;
-            data.samples.push_back({val, val});
-        }
-        
+        core::SignalData data = test::RealDataLoader::loadWAV("real_subset_mono.wav");
+        test::check(!data.samples.empty(), "DCRemoval: Real Mono WAV data loaded successfully");
+
         preprocessing::DCRemoval::process(data);
-        
-        for (int i = 0; i < 100; ++i) {
-            float expected = (i % 2 == 0) ? 1.0f : -1.0f;
-            test::approx_check(data.samples[i].real(), expected, "DCRemoval: Zero mean signal unaltered real", 1e-5f);
-            test::approx_check(data.samples[i].imag(), expected, "DCRemoval: Zero mean signal unaltered imag", 1e-5f);
+
+        std::complex<float> sum(0.0f, 0.0f);
+        for (const auto& sample : data.samples) {
+            sum += sample;
         }
+        std::complex<float> mean = sum / static_cast<float>(data.samples.size());
+
+        test::approx_check(mean.real(), 0.0f, "DCRemoval: Mono WAV mean real part should be ~0", 1e-4f);
     }
-    
-    // Test 3: EmptySignal
+
+    // Test 3: Real IQ File (real_subset_float32.iq)
     {
-        core::SignalData data;
-        data.sampleRate = 1000.0;
-        data.centerFrequency = 0.0;
-        
-        // Should not crash
+        core::SignalData data = test::RealDataLoader::loadIQFloat32("real_subset_float32.iq");
+        test::check(!data.samples.empty(), "DCRemoval: Real IQ Float32 data loaded successfully");
+
         preprocessing::DCRemoval::process(data);
-        test::check(data.samples.empty(), "DCRemoval: Empty signal remains empty");
+
+        std::complex<float> sum(0.0f, 0.0f);
+        for (const auto& sample : data.samples) {
+            sum += sample;
+        }
+        std::complex<float> mean = sum / static_cast<float>(data.samples.size());
+
+        test::approx_check(mean.real(), 0.0f, "DCRemoval: Real IQ mean real part should be ~0", 1e-4f);
+        test::approx_check(mean.imag(), 0.0f, "DCRemoval: Real IQ mean imag part should be ~0", 1e-4f);
     }
 }

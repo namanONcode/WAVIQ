@@ -80,9 +80,10 @@ SymbolRateResult SymbolRateEstimator::findPeaks(
     if (magnitudeSpectrum.empty() || N == 0) return result;
 
     const float freqResolution = static_cast<float>(sampleRate) / N;
+    const float effectiveMinRate = std::max(minRate, static_cast<float>(sampleRate * 0.01f));
 
-    // Minimum bin index to search (skip DC and very low frequencies)
-    size_t minBin = static_cast<size_t>(std::ceil(minRate / freqResolution));
+    // Minimum bin index to search (skip DC and very low frequencies/phase drift)
+    size_t minBin = static_cast<size_t>(std::ceil(effectiveMinRate / freqResolution));
     if (minBin < 1) minBin = 1; // Always skip DC (bin 0)
 
     // Maximum bin: Nyquist (N/2)
@@ -124,12 +125,52 @@ SymbolRateResult SymbolRateEstimator::findPeaks(
         return result;
     }
 
+    // Collect significant candidate peaks (power >= 40% of max peak power)
+    float maxPower = peaks[0].power;
+    float thresholdPower = 0.40f * maxPower;
+
+    size_t bestPeakIndex = 0;
+    float lowestFreq = peaks[0].bin * freqResolution;
+
+    for (size_t i = 0; i < numCandidates; ++i) {
+        if (peaks[i].power >= thresholdPower) {
+            float freq = peaks[i].bin * freqResolution;
+            if (freq < lowestFreq) {
+                lowestFreq = freq;
+                bestPeakIndex = i;
+            }
+        }
+    }
+
     for (size_t i = 0; i < numCandidates; ++i) {
         result.candidateRates.push_back(peaks[i].bin * freqResolution);
         result.candidatePowers.push_back(peaks[i].power);
     }
 
-    result.estimatedRate = result.candidateRates[0];
+    result.estimatedRate = lowestFreq;
+
+    // Harmonic reduction check: If selected peak is an integer harmonic (k * Rs for k in 2..6),
+    // check if a fundamental peak exists at f / k with power >= 25% of max power.
+    for (int k = 6; k >= 2; --k) {
+        size_t fundBin = bestPeakIndex < peaks.size() ? peaks[bestPeakIndex].bin / k : 0;
+        if (fundBin >= minBin) {
+            float maxFundPower = 0.0f;
+            size_t bestFundBin = fundBin;
+            for (int offset = -2; offset <= 2; ++offset) {
+                int b = static_cast<int>(fundBin) + offset;
+                if (b >= static_cast<int>(minBin) && b < static_cast<int>(maxBin)) {
+                    if (magnitudeSpectrum[b] > maxFundPower) {
+                        maxFundPower = magnitudeSpectrum[b];
+                        bestFundBin = static_cast<size_t>(b);
+                    }
+                }
+            }
+            if (maxFundPower >= 0.25f * maxPower) {
+                result.estimatedRate = bestFundBin * freqResolution;
+                break;
+            }
+        }
+    }
 
     // Confidence: ratio of strongest peak to the next one (peak saliency)
     if (numCandidates >= 2 && result.candidatePowers[1] > 0.0f) {
@@ -160,12 +201,15 @@ SymbolRateResult SymbolRateEstimator::estimateMagnitudeSquared(
 
     const size_t N = data.samples.size();
 
-    // Step 1: Compute r[n] = |x[n]|^2
+    // Step 1: Compute non-linear delay-and-multiply envelope to expose symbol transitions
     std::vector<float> magSquared(N);
     for (size_t i = 0; i < N; ++i) {
-        float re = data.samples[i].real();
-        float im = data.samples[i].imag();
-        magSquared[i] = re * re + im * im;
+        if (i > 0) {
+            std::complex<float> prod = data.samples[i] * std::conj(data.samples[i - 1]);
+            magSquared[i] = prod.real();
+        } else {
+            magSquared[i] = 0.0f;
+        }
     }
 
     // Step 2: Remove DC (subtract mean)
@@ -205,11 +249,15 @@ SymbolRateResult SymbolRateEstimator::estimateDelayMultiply(
     // Step 1: Compute d[n] = x[n] * conj(x[n-1])
     // Step 2: Compute r[n] = |d[n]|^2
     std::vector<float> delayMulMagSq(M);
+    std::complex<float> prevProd(0, 0);
     for (size_t i = 0; i < M; ++i) {
         std::complex<float> product = data.samples[i + 1] * std::conj(data.samples[i]);
-        float re = product.real();
-        float im = product.imag();
-        delayMulMagSq[i] = re * re + im * im;
+        if (i > 0) {
+            delayMulMagSq[i] = std::norm(product - prevProd);
+        } else {
+            delayMulMagSq[i] = 0.0f;
+        }
+        prevProd = product;
     }
 
     // Step 3: Remove DC
@@ -263,12 +311,11 @@ SymbolRateResult SymbolRateEstimator::estimate(
         }
     }
 
-    // Methods disagree — return whichever has higher confidence
-    if (magSqResult.confidence >= delayMulResult.confidence) {
-        return magSqResult;
-    } else {
+    // Prefer delay-multiply estimator as it is robust across FSK, PSK, and QAM modulations
+    if (delayMulResult.estimatedRate > 0.0f && delayMulResult.confidence >= 0.3f) {
         return delayMulResult;
     }
+    return magSqResult;
 }
 
 // ──────────────────────────────────────────────────────────────────
