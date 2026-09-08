@@ -1,0 +1,62 @@
+# Add Test Cases for SignalAnalyzer
+
+This plan outlines the addition of GoogleTest and unit tests for the core preprocessing components of the `SignalAnalyzer` engine. 
+
+## User Review Required
+
+- **GoogleTest Integration**: I will use CMake's `FetchContent` to automatically download and build GoogleTest. This avoids the need to install GoogleTest system-wide and ensures cross-platform compatibility. Is this approach acceptable, or would you prefer using `find_package(GTest REQUIRED)` requiring a pre-installed GTest?
+
+## Proposed Changes
+
+---
+
+### Build System
+
+Update `CMakeLists.txt` to download GoogleTest and configure the test executable.
+
+#### [MODIFY] [CMakeLists.txt](file:///d:/sih2026/SignalAnalyzer/CMakeLists.txt)
+- Add `include(FetchContent)` and configure GoogleTest.
+- Enable testing with `enable_testing()`.
+- Add `tests/DCRemovalTests.cpp`, `tests/NormalizerTests.cpp`, `tests/FilterTests.cpp`, and `tests/SignalDetectorTests.cpp` to `add_executable(SignalAnalyzerTests ...)`.
+- Link against `SignalAnalyzerEngine`, `GTest::gtest`, and `GTest::gtest_main`.
+- Register the test target with `add_test()`.
+
+---
+
+### Test Cases
+
+Create tests for the preprocessing modules. We will use `GTest::gtest_main`, so a separate `main.cpp` is not strictly necessary.
+
+#### [NEW] [tests/DCRemovalTests.cpp](file:///d:/sih2026/SignalAnalyzer/tests/DCRemovalTests.cpp)
+- Test removing DC offset from a signal with a known positive DC bias.
+- Test with an alternating signal (zero mean).
+- Test with an empty signal.
+
+#### [NEW] [tests/NormalizerTests.cpp](file:///d:/sih2026/SignalAnalyzer/tests/NormalizerTests.cpp)
+- Test normalizing a signal with amplitude < 1.0 (should scale up).
+- Test normalizing a signal with amplitude > 1.0 (should scale down).
+- Test with a zero signal.
+- Test with an empty signal.
+
+#### [NEW] [tests/FilterTests.cpp](file:///d:/sih2026/SignalAnalyzer/tests/FilterTests.cpp)
+- Test applying a simple moving average filter.
+- Test applying an impulse (identity) filter.
+- Test with an empty signal or empty filter taps.
+
+#### [NEW] [tests/SignalDetectorTests.cpp](file:///d:/sih2026/SignalAnalyzer/tests/SignalDetectorTests.cpp)
+- Test extracting an active region when a high-energy pulse is surrounded by noise.
+- Test with a signal that is pure noise (no active region should be found).
+- Test with a constant high-energy signal (entire signal should be retained).
+
+## Verification Plan
+
+### Automated Tests
+- Build the project using `cmake` and run the tests using `ctest` or by directly executing `SignalAnalyzerTests.exe`.
+
+```powershell
+mkdir build
+cd build
+cmake ..
+cmake --build .
+ctest --output-on-failure
+```
