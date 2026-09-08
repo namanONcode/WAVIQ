@@ -97,6 +97,9 @@ public:
 
     // Display the sliding window correlation metric for sync word matching
     virtual void render_header_correlation(const std::vector<float>& correlation_metric) = 0;
+
+    // Append a live log message to the GUI
+    virtual void append_log(const std::string& message) = 0;
 };
 
 } // namespace module1

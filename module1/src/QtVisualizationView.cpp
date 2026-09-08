@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QTextEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -74,7 +75,13 @@ void QtVisualizationView::setup_ui(){
     auto* analysis=new QWidget(central); auto* al=new QHBoxLayout(analysis); region_start_input_=new QLineEdit("0",analysis); region_start_input_->setObjectName("analysis_region_start"); region_length_input_=new QLineEdit(analysis); region_length_input_->setObjectName("analysis_region_length"); fft_size_combo_=new QComboBox(analysis); fft_size_combo_->setObjectName("fft_size_combo"); for(int n=64;n<=65536;n*=2)fft_size_combo_->addItem(QString::number(n)); fft_size_combo_->setCurrentText("1024"); waveform_check_=new QCheckBox("Waveform",analysis); constellation_check_=new QCheckBox("Constellation",analysis); spectrum_check_=new QCheckBox("Spectrum",analysis); power_check_=new QCheckBox("Power",analysis); waterfall_check_=new QCheckBox("Waterfall",analysis); for(auto* c:{waveform_check_,constellation_check_,spectrum_check_,power_check_,waterfall_check_})c->setChecked(true); analyze_btn_=new QPushButton("Analyze",analysis); analysis_status_label_=new QLabel("Ready",analysis); analysis_status_label_->setObjectName("analysis_status_label"); al->addWidget(new QLabel("Start:"));al->addWidget(region_start_input_);al->addWidget(new QLabel("Length:"));al->addWidget(region_length_input_);al->addWidget(new QLabel("FFT:"));al->addWidget(fft_size_combo_);for(auto*c:{waveform_check_,constellation_check_,spectrum_check_,power_check_,waterfall_check_})al->addWidget(c);al->addWidget(analyze_btn_);al->addWidget(analysis_status_label_);main->addWidget(analysis); connect(analyze_btn_,&QPushButton::clicked,this,&QtVisualizationView::analyze);
     hdf5_nav_widget_=new QWidget(central);auto* nav=new QHBoxLayout(hdf5_nav_widget_); sample_rate_input_=new QLineEdit(hdf5_nav_widget_);sample_rate_input_->setObjectName("hdf5_sample_rate");sample_rate_input_->setPlaceholderText("Required sample rate (Hz)");axis_order_combo_=new QComboBox(hdf5_nav_widget_);axis_order_combo_->addItems({"IThenQ","QThenI"});prev_btn_=new QPushButton("Previous",hdf5_nav_widget_);next_btn_=new QPushButton("Next",hdf5_nav_widget_);frame_spinbox_=new QSpinBox(hdf5_nav_widget_);frame_spinbox_->setMinimum(0);nav->addWidget(new QLabel("Sample Rate:"));nav->addWidget(sample_rate_input_);nav->addWidget(new QLabel("Axis (unverified):"));nav->addWidget(axis_order_combo_);nav->addWidget(prev_btn_);nav->addWidget(frame_spinbox_);nav->addWidget(next_btn_);main->addWidget(hdf5_nav_widget_);hdf5_nav_widget_->setVisible(false);connect(prev_btn_,&QPushButton::clicked,this,&QtVisualizationView::on_prev_frame);connect(next_btn_,&QPushButton::clicked,this,&QtVisualizationView::on_next_frame);connect(frame_spinbox_,QOverload<int>::of(&QSpinBox::valueChanged),this,&QtVisualizationView::on_frame_changed);
     completion_timer_=new QTimer(this);completion_timer_->setInterval(25);connect(completion_timer_,&QTimer::timeout,this,&QtVisualizationView::drain_completions);completion_timer_->start();resize(1200,700);
-    logs_dock_=new QDockWidget("Logs",this);logs_dock_->setObjectName("logs_dock");logs_placeholder_=new QLabel("Logs will appear here when logging is available.",logs_dock_);logs_placeholder_->setObjectName("logs_placeholder");logs_placeholder_->setAlignment(Qt::AlignCenter);logs_dock_->setWidget(logs_placeholder_);addDockWidget(Qt::BottomDockWidgetArea,logs_dock_);
+    logs_dock_=new QDockWidget("Logs",this);
+    logs_dock_->setObjectName("logs_dock");
+    logs_text_edit_=new QTextEdit(logs_dock_);
+    logs_text_edit_->setObjectName("logs_text_edit");
+    logs_text_edit_->setReadOnly(true);
+    logs_dock_->setWidget(logs_text_edit_);
+    addDockWidget(Qt::BottomDockWidgetArea,logs_dock_);
 }
 void QtVisualizationView::setup_menus(){auto* f=menuBar()->addMenu("File");auto* a=f->addAction("Open WAV/IQ...");connect(a,&QAction::triggered,this,&QtVisualizationView::open_file);a=f->addAction("Open HDF5 Dataset...");connect(a,&QAction::triggered,this,&QtVisualizationView::open_hdf5);auto* v=menuBar()->addMenu("View");v->addAction(logs_dock_->toggleViewAction());}
 void QtVisualizationView::render_waveform_data(const WaveformData& d){time_plot_->set_waveform_data(d);} void QtVisualizationView::render_constellation_data(const ConstellationData& d){const_plot_->set_constellation_data(d);} void QtVisualizationView::render_spectrum_data(const SpectrumData& d){fft_plot_->set_spectrum_data(d);} void QtVisualizationView::render_power_spectrum_data(const PowerSpectrumData& d){power_plot_->set_power_spectrum_data(d);} void QtVisualizationView::render_spectrogram_data(const SpectrogramData& d){waterfall_plot_->set_spectrogram_data(d);}
@@ -89,8 +96,9 @@ bool QtVisualizationView::valid_hdf5_rate(double& rate)const{bool ok=false;rate=
 void QtVisualizationView::load_hdf5_frame(int frame){if(!hdf5_open_||!presenter_)return;double rate;if(!valid_hdf5_rate(rate)){analysis_status_label_->setText("A positive HDF5 sample rate is required");return;}try{presenter_->load_hdf5_dataset_frame(static_cast<size_t>(frame),rate,axis_order_combo_->currentIndex()==0?IqAxisOrder::IThenQ:IqAxisOrder::QThenI);set_default_region();analyze();}catch(const std::exception&e){QMessageBox::warning(this,"Error",e.what());}}
 void QtVisualizationView::on_frame_changed(int f){load_hdf5_frame(f);}void QtVisualizationView::on_prev_frame(){frame_spinbox_->setValue(std::max(0,frame_spinbox_->value()-1));}void QtVisualizationView::on_next_frame(){frame_spinbox_->setValue(std::min(frame_spinbox_->maximum(),frame_spinbox_->value()+1));}
 void QtVisualizationView::set_default_region(){if(!presenter_)return;const size_t n=presenter_->current_signal().sample_count();const size_t fft=fft_size_combo_->currentText().toULongLong();region_start_input_->setText("0");region_length_input_->setText(QString::number(std::min(n,fft)));}
-void QtVisualizationView::analyze(){if(!presenter_||presenter_->current_signal().sample_count()==0)return;bool ok1=false,ok2=false;const auto start=region_start_input_->text().toULongLong(&ok1);const auto length=region_length_input_->text().toULongLong(&ok2);const auto fft=fft_size_combo_->currentText().toULongLong();if(!ok1||!ok2||length==0||start>presenter_->current_signal().sample_count()||length>presenter_->current_signal().sample_count()-start){display_analysis_error("Analysis region is outside the loaded signal");return;}if((spectrum_check_->isChecked()||power_check_->isChecked())&&length>fft){display_analysis_error("Spectrum analysis region length must not exceed FFT size");return;}VisualizationRequest r;r.region={static_cast<size_t>(start),static_cast<size_t>(length)};r.waveform=waveform_check_->isChecked();r.constellation=constellation_check_->isChecked();r.spectrum=spectrum_check_->isChecked();r.power_spectrum=power_check_->isChecked();r.spectrogram=waterfall_check_->isChecked();VisualizationAnalysisConfig c;c.fft_size=static_cast<size_t>(fft);presenter_->request_visualizations(r,c);}
+void QtVisualizationView::analyze(){if(!presenter_||presenter_->current_signal().sample_count()==0)return;bool ok1=false,ok2=false;const auto start=region_start_input_->text().toULongLong(&ok1);const auto length=region_length_input_->text().toULongLong(&ok2);const auto fft=fft_size_combo_->currentText().toULongLong();if(!ok1||ok2==false||length==0||start>presenter_->current_signal().sample_count()||length>presenter_->current_signal().sample_count()-start){display_analysis_error("Analysis region is outside the loaded signal");return;}if((spectrum_check_->isChecked()||power_check_->isChecked())&&length>fft){display_analysis_error("Spectrum analysis region length must not exceed FFT size");return;}VisualizationRequest r;r.region={static_cast<size_t>(start),static_cast<size_t>(length)};r.waveform=waveform_check_->isChecked();r.constellation=constellation_check_->isChecked();r.spectrum=spectrum_check_->isChecked();r.power_spectrum=power_check_->isChecked();r.spectrogram=waterfall_check_->isChecked();VisualizationAnalysisConfig c;c.fft_size=static_cast<size_t>(fft);presenter_->request_visualizations(r,c);}
 void QtVisualizationView::drain_completions(){if(presenter_)presenter_->drain_visualization_completions();}
+
 void QtVisualizationView::render_decoded_bitstream(const std::vector<uint8_t>& payload){
     if (analysis_status_label_) analysis_status_label_->setText(QString("Decoded payload: %1 bytes").arg(payload.size()));
 }
@@ -99,5 +107,11 @@ void QtVisualizationView::display_fec_metrics(float bit_error_rate, bool decode_
 }
 void QtVisualizationView::render_header_correlation(const std::vector<float>& correlation_metric){
     if (analysis_status_label_) analysis_status_label_->setText(QString("Header correlation: %1 samples").arg(correlation_metric.size()));
+}
+
+void QtVisualizationView::append_log(const std::string& message) {
+    if (logs_text_edit_) {
+        logs_text_edit_->append(QString::fromStdString(message));
+    }
 }
 } // namespace module1

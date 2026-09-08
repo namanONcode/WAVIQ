@@ -9,7 +9,6 @@ set(CMAKE_AUTORCC ON)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SNDFILE REQUIRED sndfile)
-find_package(nlohmann_json REQUIRED)
 # CMake's bundled FindHDF5 module (not an HDF5-exported config package) --
 # chosen because it works across older libhdf5 installs that don't ship a
 # modern hdf5-config.cmake (this project's build environment: 1.10.10).
@@ -27,8 +26,21 @@ add_library(module1_core
     src/VisualizationProcessors.cpp
     src/VisualizationAnalysisExecutor.cpp
 )
-target_include_directories(module1_core PUBLIC include ${SNDFILE_INCLUDE_DIRS} ${HDF5_INCLUDE_DIRS})
-target_link_libraries(module1_core PUBLIC ${SNDFILE_LIBRARIES} nlohmann_json::nlohmann_json ${HDF5_C_LIBRARIES} Threads::Threads)
+target_include_directories(module1_core PUBLIC 
+    include 
+    ${SNDFILE_INCLUDE_DIRS} 
+    ${HDF5_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../module2/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../module3/include
+)
+target_link_libraries(module1_core PUBLIC 
+    ${SNDFILE_LIBRARIES} 
+    ${HDF5_C_LIBRARIES} 
+    Threads::Threads
+    ${CMAKE_CURRENT_SOURCE_DIR}/../module3/build/libBitstreamProcessorEngine.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/../module2/build/libSignalAnalyzerEngine.a
+    fftw3 fftw3f fec
+)
 target_compile_options(module1_core PUBLIC ${SNDFILE_CFLAGS_OTHER})
 
 add_executable(module1_cli src/main.cpp)

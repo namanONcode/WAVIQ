@@ -9,7 +9,7 @@
 #include "module1/VisualizationView.h"
 
 class QCheckBox; class QComboBox; class QDockWidget; class QLabel; class QLineEdit;
-class QPushButton; class QSpinBox; class QTimer; class QWidget; class QPainter; class QPaintEvent; class QWheelEvent; class QMouseEvent;
+class QPushButton; class QSpinBox; class QTimer; class QWidget; class QPainter; class QPaintEvent; class QWheelEvent; class QMouseEvent; class QTextEdit;
 
 namespace module1 {
 class PlotWidget : public QWidget {
@@ -45,17 +45,24 @@ public:
     void render_spectrum_data(const SpectrumData&) override; void render_power_spectrum_data(const PowerSpectrumData&) override;
     void render_spectrogram_data(const SpectrogramData&) override; void display_analysis_status(const std::string&, bool) override;
     void display_analysis_error(const std::string&) override; void display_metadata(const SignalMetadata&) override;
-    void display_frame_info(const std::string&, int, int) override; void show_window() override;
-    void render_decoded_bitstream(const std::vector<uint8_t>&) override;
-    void display_fec_metrics(float, bool) override;
-    void render_header_correlation(const std::vector<float>&) override;
+    void display_frame_info(const std::string&, int, int) override; 
+    // Standalone desktop application window lifecycle.
+    void show_window() override;
+    
+    // --- Module 3 Overrides ---
+    void render_decoded_bitstream(const std::vector<uint8_t>& payload) override;
+    void display_fec_metrics(float bit_error_rate, bool decode_success) override;
+    void render_header_correlation(const std::vector<float>& correlation_metric) override;
+    void append_log(const std::string& message) override;
+
 private slots:
     void open_file(); void open_hdf5(); void on_frame_changed(int); void on_prev_frame(); void on_next_frame(); void analyze(); void drain_completions();
 private:
     void setup_ui(); void setup_menus(); void prompt_manual_metadata(const std::string&); void load_hdf5_frame(int); void set_default_region(); bool valid_hdf5_rate(double&) const;
     VisualizationPresenter* presenter_ = nullptr; bool hdf5_open_ = false;
     PlotWidget *time_plot_ = nullptr, *const_plot_ = nullptr, *fft_plot_ = nullptr, *power_plot_ = nullptr, *waterfall_plot_ = nullptr;
-    QLabel *metadata_label_ = nullptr, *frame_info_label_ = nullptr, *analysis_status_label_ = nullptr, *logs_placeholder_ = nullptr;
+    QLabel *metadata_label_ = nullptr, *frame_info_label_ = nullptr, *analysis_status_label_ = nullptr;
+    QTextEdit* logs_text_edit_ = nullptr;
     QWidget* hdf5_nav_widget_ = nullptr; QSpinBox* frame_spinbox_ = nullptr;
     QPushButton *prev_btn_ = nullptr, *next_btn_ = nullptr, *analyze_btn_ = nullptr;
     QLineEdit *sample_rate_input_ = nullptr, *region_start_input_ = nullptr, *region_length_input_ = nullptr;

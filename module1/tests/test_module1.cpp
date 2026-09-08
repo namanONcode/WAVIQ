@@ -1164,6 +1164,7 @@ public:
     void render_decoded_bitstream(const std::vector<uint8_t>&) override {}
     void display_fec_metrics(float, bool) override {}
     void render_header_correlation(const std::vector<float>&) override {}
+    void append_log(const std::string&) override {}
 };
 
 namespace {
