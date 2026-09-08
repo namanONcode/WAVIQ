@@ -30,18 +30,23 @@
 // ============================================================================
 
 #include <string>
+#include <memory>
+#include <exception>
 
 #include "module1/HdfFrameLabels.h"
 #include "module1/SignalTypes.h"
 #include "module1/VisualizationView.h"
+#include "module1/SignalSessionModel.h"
+#include "module1/VisualizationAnalysisExecutor.h"
 
 namespace module1 {
 
 class VisualizationPresenter {
 public:
     // The Presenter does NOT own the View; lifetime is managed externally.
-    explicit VisualizationPresenter(IVisualizationView* view)
-        : view_(view) {
+    explicit VisualizationPresenter(IVisualizationView* view,
+                                    IVisualizationAnalysisExecutor* executor = nullptr)
+        : view_(view), executor_(executor ? executor : &inline_executor_) {
         if (view_) {
             view_->set_presenter(this);
         }
@@ -79,6 +84,49 @@ public:
     const ComplexSignal& current_signal() const { return current_signal_; }
     bool has_labels() const { return has_labels_; }
     const FrameLabels& current_labels() const { return current_labels_; }
+    SignalSessionModel& session() { return session_; }
+    const SignalSessionModel& session() const { return session_; }
+
+    void load_signal_file(const std::string& path) {
+        session_.load_file(path);
+        on_signal_loaded(session_.signal());
+    }
+    void load_iq_signal_with_metadata(const std::string& path, const IqMetadataInput& metadata) {
+        session_.load_iq_with_metadata(path, metadata);
+        on_signal_loaded(session_.signal());
+    }
+    void open_hdf5_dataset(const std::string& path) { session_.open_hdf5(path); }
+    size_t hdf5_frame_count() const { return session_.hdf5_frame_count(); }
+    void load_hdf5_dataset_frame(size_t frame_index, double externally_supplied_sample_rate_hz,
+                                 IqAxisOrder order = IqAxisOrder::IThenQ) {
+        session_.load_hdf5_frame(frame_index, externally_supplied_sample_rate_hz, order);
+        on_frame_loaded(session_.signal(), session_.current_frame_labels(), session_.current_modulation_name());
+    }
+
+    // The caller supplies an explicit region and requested products. This does
+    // not alter current_signal_ or its full-resolution Module 2 handoff.
+    void request_visualizations(const VisualizationRequest& request,
+                                const VisualizationAnalysisConfig& config = {}) {
+        if (current_signal_.sample_count() == 0) return;
+        const size_t request_id = ++latest_request_id_;
+        if (view_) view_->display_analysis_status("Analyzing…", true);
+        executor_->submit(current_signal_, request, config,
+            [this, request_id](VisualizationProducts products, std::exception_ptr error) {
+                if (request_id != latest_request_id_) return;
+                if (error) {
+                    try { std::rethrow_exception(error); }
+                    catch (const std::exception& e) { if (view_) view_->display_analysis_error(e.what()); }
+                    catch (...) { if (view_) view_->display_analysis_error("Visualization analysis failed"); }
+                } else {
+                    deliver_visualization_products(products);
+                }
+                if (view_) view_->display_analysis_status(error ? "Analysis failed" : "Ready", false);
+            });
+    }
+
+    // The GUI integration calls this on its event thread after background
+    // work is available; it is a delivery pump, not application workflow.
+    void drain_visualization_completions() { executor_->drain_completions(); }
 
 private:
     void update_view_with_signal() {
@@ -97,10 +145,23 @@ private:
         //   view_->render_waterfall(spectrogram);
     }
 
+    void deliver_visualization_products(const VisualizationProducts& products) {
+        if (!view_) return;
+        if (products.has_waveform) view_->render_waveform_data(products.waveform);
+        if (products.has_constellation) view_->render_constellation_data(products.constellation);
+        if (products.has_spectrum) view_->render_spectrum_data(products.spectrum);
+        if (products.has_power_spectrum) view_->render_power_spectrum_data(products.power_spectrum);
+        if (products.has_spectrogram) view_->render_spectrogram_data(products.spectrogram);
+    }
+
     IVisualizationView* view_;
     ComplexSignal current_signal_;
     FrameLabels current_labels_{};
     bool has_labels_ = false;
+    SignalSessionModel session_;
+    InlineVisualizationAnalysisExecutor inline_executor_;
+    IVisualizationAnalysisExecutor* executor_ = nullptr;
+    size_t latest_request_id_ = 0;
 };
 
 } // namespace module1

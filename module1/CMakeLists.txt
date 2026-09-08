@@ -14,6 +14,7 @@ find_package(nlohmann_json REQUIRED)
 # chosen because it works across older libhdf5 installs that don't ship a
 # modern hdf5-config.cmake (this project's build environment: 1.10.10).
 find_package(HDF5 REQUIRED COMPONENTS C)
+find_package(Threads REQUIRED)
 
 add_library(module1_core
     src/WavLoader.cpp
@@ -22,9 +23,12 @@ add_library(module1_core
     src/IqMetadataParser.cpp
     src/LoaderFactory.cpp
     src/HdfIqFrameDataset.cpp
+    src/SignalSessionModel.cpp
+    src/VisualizationProcessors.cpp
+    src/VisualizationAnalysisExecutor.cpp
 )
 target_include_directories(module1_core PUBLIC include ${SNDFILE_INCLUDE_DIRS} ${HDF5_INCLUDE_DIRS})
-target_link_libraries(module1_core PUBLIC ${SNDFILE_LIBRARIES} nlohmann_json::nlohmann_json ${HDF5_C_LIBRARIES})
+target_link_libraries(module1_core PUBLIC ${SNDFILE_LIBRARIES} nlohmann_json::nlohmann_json ${HDF5_C_LIBRARIES} Threads::Threads)
 target_compile_options(module1_core PUBLIC ${SNDFILE_CFLAGS_OTHER})
 
 add_executable(module1_cli src/main.cpp)

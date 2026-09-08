@@ -14,6 +14,22 @@ Because downstream modules (Module 2 preprocessing, Module 3 ML classification a
 
 ## 2. Test Architecture and Execution
 
+### 2.5 Visualization DSP Real-Data Policy
+
+All normal-path visualization DSP correctness tests use authentic samples read
+through `HdfIqFrameDataset` from `testdata/real_subset.h5`. They do not create
+synthetic tones, impulses, noise, or hand-written IQ buffers. FFT and STFT
+reference constants are independently calculated with Python `h5py`/NumPy
+using Hann windows, `fft`, `fftshift`, and the documented relative-power dB
+formula. The C++ processors under test never generate their own expected
+values.
+
+The core suite verifies real-frame FFT dimensions, centered frequency ordering,
+Hz spacing for an explicitly supplied rate, selected magnitude/power bins,
+zero-padded short-region behavior, STFT shape and cells, finite outputs,
+deterministic reduction, product independence, unchanged `ComplexSignal`, and
+explicit HDF5 sample-rate requirements.
+
 ### 2.1 Framework-Free Design
 The test harness [`tests/test_module1.cpp`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/tests/test_module1.cpp) is intentionally self-contained with **zero external testing framework dependencies** (no GoogleTest, Catch2, or Boost.Test).
 - Avoids extra build-time package requirements.
@@ -42,9 +58,16 @@ ctest --test-dir build --output-on-failure -V
 ```
 
 ### 2.4 Current Test Metrics
-- **Core Ingestion Test Harness (`module1_tests`)**: 33 test functions, 347 checks passed (100%).
-- **GUI Component Test Suite (`module1_gui_tests`)**: 6 integration tests on real datasets (100% pass rate).
-- **Combined Test Result**: **100% pass rate across all suites (0 failures)**.
+- **Core Module 1 Harness (`module1_tests`)**: 45 test functions, 405 checks passed (100%) in the current configured build.
+- **GUI Component Test Suite (`module1_gui_tests`)**: 6 conditional Qt integration tests on real datasets when Qt Test/Widgets are available.
+- The current configured build has no Qt installation, so it registers and runs the core suite only.
+
+When Qt Widgets and Qt Test are available, `module1_gui_tests` verifies that
+typed products derived from `real_subset.h5` reach the waveform,
+constellation, spectrum, power-spectrum, and waterfall plots. It also covers
+explicit HDF5-rate refusal/propagation, shared analysis-region controls,
+background completion/stale-result handling, and the Logs placeholder. These
+GUI tests never calculate FFT or STFT data themselves.
 
 ---
 
@@ -279,7 +302,7 @@ Every single test function in [`tests/test_module1.cpp`](file:///home/namanoncod
   - Exactly 1 call to `render_time_domain` receiving 1024 real samples.
   - Exactly 1 call to `render_constellation` receiving 1024 real samples.
   - Exactly 1 call to `display_metadata` with caller sample rate (250 kHz) and metadata source `"hdf5_manual_sample_rate"`.
-  - 0 calls to `render_fft` (FFT DSP is separate and not yet wired).
+  - 0 calls to the legacy `render_fft` callback; typed spectrum delivery is tested separately through the new DSP path.
   - 0 calls to `display_frame_info` (`on_signal_loaded` path only handles raw signals).
 
 #### 31. `test_mvp_on_frame_loaded_with_real_labels`
@@ -530,26 +553,21 @@ test 1
 1: test_mvp_on_frame_loaded_with_real_labels
 1: test_mvp_presenter_with_null_view
 1: test_mvp_dsp_separated_from_view
+1: test_real_hdf5_dsp_products
+1: test_real_hdf5_region_and_reduction_behavior
+1: test_presenter_requests_only_requested_real_products
+1: test_session_model_requires_explicit_hdf5_rate
+1: test_background_executor_discards_stale_real_data_results
+1: test_background_executor_delivers_real_data_failure_safely
+1: test_waveform_processor_real_data_contract
+1: test_constellation_processor_real_data_contract
+1: test_spectrum_and_power_multiple_real_frames
+1: test_spectrogram_real_data_contract_and_regions
+1: test_real_data_processor_validation
+1: test_real_hdf5_full_pipeline_to_typed_view
 1: 
-1: 347/347 checks passed
-1/2 Test #1: module1_tests ....................   Passed    0.01 sec
-test 2
-    Start 2: module1_gui_tests
+1: 405/405 checks passed
+1/1 Test #1: module1_tests ....................   Passed    0.05 sec
 
-2: Test command: .../module1/build/tests/module1_gui_tests
-2: Working Directory: .../module1/build/tests
-2: ********* Start testing of TestGui *********
-2: PASS   : TestGui::initTestCase()
-2: PASS   : TestGui::testViewLifecycle()
-2: PASS   : TestGui::testRealHdf5DatasetNavigationAndRendering()
-2: PASS   : TestGui::testRealWavSignalLoadingAndMetadata()
-2: PASS   : TestGui::testRealIqSignalLoadingWithSigMF()
-2: PASS   : TestGui::testRealIqManualMetadataWorkflow()
-2: PASS   : TestGui::testRealWaterfallAndPlotRenderingFromDataset()
-2: PASS   : TestGui::cleanupTestCase()
-2: Totals: 8 passed, 0 failed, 0 skipped, 0 blacklisted
-2: ********* Finished testing of TestGui *********
-2/2 Test #2: module1_gui_tests ................   Passed    0.08 sec
-
-100% tests passed, 0 tests failed out of 2
+100% tests passed, 0 tests failed out of 1
 ```
