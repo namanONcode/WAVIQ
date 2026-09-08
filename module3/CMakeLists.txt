@@ -21,7 +21,8 @@ add_library(BitstreamProcessorEngine
 )
 
 target_include_directories(BitstreamProcessorEngine PUBLIC include)
-target_include_directories(BitstreamProcessorEngine PUBLIC ../module2/include)
+target_include_directories(BitstreamProcessorEngine PRIVATE ../module2/include)
+target_link_libraries(BitstreamProcessorEngine PUBLIC fec)
 
 # We link to Module 2 to consume its data structures if needed
 # (Though AnalysisResult is mostly header-only, we might need some symbols)
@@ -48,5 +49,6 @@ target_link_libraries(BitstreamProcessorTests PRIVATE
     ${SNDFILE_LIBRARIES}
     ${FFTW3_LIB}
     ${FFTW3F_LIB}
+    fec
 )
 add_test(NAME BitstreamProcessorTests COMMAND BitstreamProcessorTests)
