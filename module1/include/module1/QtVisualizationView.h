@@ -46,6 +46,9 @@ public:
     void render_spectrogram_data(const SpectrogramData&) override; void display_analysis_status(const std::string&, bool) override;
     void display_analysis_error(const std::string&) override; void display_metadata(const SignalMetadata&) override;
     void display_frame_info(const std::string&, int, int) override; void show_window() override;
+    void render_decoded_bitstream(const std::vector<uint8_t>&) override;
+    void display_fec_metrics(float, bool) override;
+    void render_header_correlation(const std::vector<float>&) override;
 private slots:
     void open_file(); void open_hdf5(); void on_frame_changed(int); void on_prev_frame(); void on_next_frame(); void analyze(); void drain_completions();
 private:

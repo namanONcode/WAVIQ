@@ -80,6 +80,23 @@ public:
         }
     }
 
+    // --- Module 3 Integration Handlers ---
+
+    // A complete demodulated and error-corrected payload is ready
+    void on_fec_decoded(const std::vector<uint8_t>& payload, float bit_error_rate, bool decode_success) {
+        if (view_) {
+            view_->render_decoded_bitstream(payload);
+            view_->display_fec_metrics(bit_error_rate, decode_success);
+        }
+    }
+
+    // A sliding-window correlation was computed by Module 3
+    void on_correlation_completed(const std::vector<float>& correlation_metrics) {
+        if (view_) {
+            view_->render_header_correlation(correlation_metrics);
+        }
+    }
+
     // --- Accessors (for View→Presenter queries, if needed) ---
     const ComplexSignal& current_signal() const { return current_signal_; }
     bool has_labels() const { return has_labels_; }

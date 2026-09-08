@@ -1161,6 +1161,9 @@ public:
     void render_spectrum_data(const SpectrumData& data) override { ++spectrum_data_call_count; last_spectrum_bin_count = data.frequency.size(); }
     void render_power_spectrum_data(const PowerSpectrumData& data) override { ++power_spectrum_data_call_count; last_power_spectrum_bin_count = data.frequency.size(); }
     void render_spectrogram_data(const SpectrogramData& data) override { ++spectrogram_data_call_count; last_spectrogram_frame_count = data.power_db_relative.size(); last_spectrogram_bin_count = data.frequency.size(); }
+    void render_decoded_bitstream(const std::vector<uint8_t>&) override {}
+    void display_fec_metrics(float, bool) override {}
+    void render_header_correlation(const std::vector<float>&) override {}
 };
 
 namespace {

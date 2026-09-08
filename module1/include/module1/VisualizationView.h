@@ -86,6 +86,17 @@ public:
 
     // Standalone desktop application window lifecycle.
     virtual void show_window() = 0;
+
+    // --- Module 3 Integration ---
+
+    // Display the final error-corrected, extracted payload bits
+    virtual void render_decoded_bitstream(const std::vector<uint8_t>& payload) = 0;
+
+    // Display Forward Error Correction performance metrics
+    virtual void display_fec_metrics(float bit_error_rate, bool decode_success) = 0;
+
+    // Display the sliding window correlation metric for sync word matching
+    virtual void render_header_correlation(const std::vector<float>& correlation_metric) = 0;
 };
 
 } // namespace module1

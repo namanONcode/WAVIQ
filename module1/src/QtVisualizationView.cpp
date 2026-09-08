@@ -91,4 +91,13 @@ void QtVisualizationView::on_frame_changed(int f){load_hdf5_frame(f);}void QtVis
 void QtVisualizationView::set_default_region(){if(!presenter_)return;const size_t n=presenter_->current_signal().sample_count();const size_t fft=fft_size_combo_->currentText().toULongLong();region_start_input_->setText("0");region_length_input_->setText(QString::number(std::min(n,fft)));}
 void QtVisualizationView::analyze(){if(!presenter_||presenter_->current_signal().sample_count()==0)return;bool ok1=false,ok2=false;const auto start=region_start_input_->text().toULongLong(&ok1);const auto length=region_length_input_->text().toULongLong(&ok2);const auto fft=fft_size_combo_->currentText().toULongLong();if(!ok1||!ok2||length==0||start>presenter_->current_signal().sample_count()||length>presenter_->current_signal().sample_count()-start){display_analysis_error("Analysis region is outside the loaded signal");return;}if((spectrum_check_->isChecked()||power_check_->isChecked())&&length>fft){display_analysis_error("Spectrum analysis region length must not exceed FFT size");return;}VisualizationRequest r;r.region={static_cast<size_t>(start),static_cast<size_t>(length)};r.waveform=waveform_check_->isChecked();r.constellation=constellation_check_->isChecked();r.spectrum=spectrum_check_->isChecked();r.power_spectrum=power_check_->isChecked();r.spectrogram=waterfall_check_->isChecked();VisualizationAnalysisConfig c;c.fft_size=static_cast<size_t>(fft);presenter_->request_visualizations(r,c);}
 void QtVisualizationView::drain_completions(){if(presenter_)presenter_->drain_visualization_completions();}
+void QtVisualizationView::render_decoded_bitstream(const std::vector<uint8_t>& payload){
+    if (analysis_status_label_) analysis_status_label_->setText(QString("Decoded payload: %1 bytes").arg(payload.size()));
+}
+void QtVisualizationView::display_fec_metrics(float bit_error_rate, bool decode_success){
+    if (analysis_status_label_) analysis_status_label_->setText(QString("FEC: %1 (BER %2)").arg(decode_success ? "success" : "failed").arg(bit_error_rate));
+}
+void QtVisualizationView::render_header_correlation(const std::vector<float>& correlation_metric){
+    if (analysis_status_label_) analysis_status_label_->setText(QString("Header correlation: %1 samples").arg(correlation_metric.size()));
+}
 } // namespace module1
