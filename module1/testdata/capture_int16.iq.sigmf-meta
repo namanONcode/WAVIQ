@@ -1,6 +1,0 @@
-{
-  "global": {
-    "core:sample_rate": 1000000,
-    "core:datatype": "ci16_le"
-  }
-}
