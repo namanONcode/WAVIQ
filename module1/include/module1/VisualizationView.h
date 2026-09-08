@@ -23,10 +23,12 @@
 // ============================================================================
 
 #include <complex>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "module1/SignalTypes.h"
+#include "module1/VisualizationTypes.h"
 
 namespace module1 {
 
@@ -60,6 +62,19 @@ public:
     virtual void render_waterfall(
         const std::vector<std::vector<float>>& spectrogram) = 0;
 
+    // Typed non-GUI DSP products. Default no-ops preserve existing concrete
+    // Views until their rendering is upgraded in the GUI implementation pass.
+    virtual void render_waveform_data(const WaveformData&) {}
+    virtual void render_constellation_data(const ConstellationData&) {}
+    virtual void render_spectrum_data(const SpectrumData&) {}
+    virtual void render_power_spectrum_data(const PowerSpectrumData&) {}
+    virtual void render_spectrogram_data(const SpectrogramData&) {}
+
+    // Optional presentational feedback for GUI integrations.  These callbacks
+    // contain no loader or DSP policy.
+    virtual void display_analysis_status(const std::string&, bool) {}
+    virtual void display_analysis_error(const std::string&) {}
+
     // Display signal metadata (sample rate, format, provenance, etc.).
     virtual void display_metadata(const SignalMetadata& metadata) = 0;
 
@@ -71,6 +86,17 @@ public:
 
     // Standalone desktop application window lifecycle.
     virtual void show_window() = 0;
+
+    // --- Module 3 Integration ---
+
+    // Display the final error-corrected, extracted payload bits
+    virtual void render_decoded_bitstream(const std::vector<uint8_t>& payload) = 0;
+
+    // Display Forward Error Correction performance metrics
+    virtual void display_fec_metrics(float bit_error_rate, bool decode_success) = 0;
+
+    // Display the sliding window correlation metric for sync word matching
+    virtual void render_header_correlation(const std::vector<float>& correlation_metric) = 0;
 };
 
 } // namespace module1

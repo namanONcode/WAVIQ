@@ -103,7 +103,7 @@ Every source file and header in Module 1 has a singular, dedicated purpose:
 | [`tests/CMakeLists.txt`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/tests/CMakeLists.txt) | Build Definition | Test harness target definition for `module1_tests`. |
 | [`include/module1/VisualizationView.h`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/include/module1/VisualizationView.h) | Public Header | Declares [`IVisualizationView`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/include/module1/VisualizationView.h) pure virtual interface for the passive MVP desktop GUI layer. |
 | [`include/module1/VisualizationPresenter.h`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/include/module1/VisualizationPresenter.h) | Public Header | Declares and implements [`VisualizationPresenter`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/include/module1/VisualizationPresenter.h), coordinating between ingestion Model/DSP and the passive View. |
-| [`tests/test_module1.cpp`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/tests/test_module1.cpp) | Test Suite | 33 automated test functions covering 384 independent verification checks across all loaders, decoders, MVP presenter/view coordination, and edge cases. |
+| [`tests/test_module1.cpp`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/tests/test_module1.cpp) | Test Suite | 45 automated test functions covering 405 verification checks across loaders, decoders, real-data DSP, MVP coordination, and edge cases. |
 
 ---
 
@@ -453,7 +453,53 @@ Loaded OK.
 
 ## 11. Current Limitations and Open Architectural Notes
 
-1. **Visualization Architecture (MVP in place, GUI Toolkit Pending)**:
+### 11.1 Qt-Free Raw Visualization DSP Foundation
+
+Module 1 now has a Qt-free visualization foundation. `VisualizationTypes.h`
+defines strongly typed derived products (`WaveformData`, `ConstellationData`,
+`SpectrumData`, `PowerSpectrumData`, and `SpectrogramData`) and explicit
+`AnalysisRegion` coordinates into the original `ComplexSignal`.  These types
+never replace or mutate the full-resolution signal used for the Module 1 to
+Module 2 hand-off.
+
+`VisualizationProcessors` independently creates only requested products:
+deterministic min/max waveform reduction, deterministic constellation
+reduction, Hann-windowed centered FFT magnitude/power displays, and a
+Hann-windowed STFT waterfall. FFT sizes are powers of two from 64 through
+65536; the default is 1024. Short selected FFT regions are zero padded;
+regions larger than the requested FFT are rejected rather than truncated.
+STFT uses 256-sample windows, a 256-point FFT, 128-sample hop, and omits a
+final incomplete window. Values are relative dB with a -120 dB floor; this is
+not calibrated dBFS and is not PSD.
+
+`SignalSessionModel` owns non-GUI loading/session state. `VisualizationPresenter`
+can request typed products through an analysis executor. The inline executor is
+used by tests; the background executor safely queues completion callbacks for
+delivery by the Presenter on its owning thread. Qt rendering remains a later
+integration step.
+
+### 11.2 Qt Typed Visualization Integration
+
+`QtVisualizationView` is the passive desktop View for the typed products. It
+uses tabs for Time & Constellation, Spectra (magnitude and power), and
+Waterfall; `PlotWidget` only renders the typed data and performs no DSP. The
+View owns menus, dialogs, controls, plot interaction, and a placeholder Logs
+dock. It no longer owns an HDF5 dataset or invokes loaders: file and frame
+commands go through `VisualizationPresenter` and `SignalSessionModel`.
+
+HDF5 input deliberately begins without a sample-rate value. A frame cannot be
+loaded until the user provides a positive rate; the old implicit 1 MHz GUI
+fallback has been removed. The analysis panel supplies one shared region,
+FFT-size selection, product selection, and an Analyze action. STFT and display
+budgets retain the documented defaults. GUI startup uses the background
+executor; worker failures are captured and delivered to the Presenter on the
+owner thread rather than escaping a worker thread.
+
+Sample-rate handling remains metadata-first. Valid rates produce seconds/Hz
+axes. Signals without a rate use sample/cycles-per-sample axes; no rate is
+invented. HDF5 frame loading requires an explicitly supplied external rate.
+
+1. **Visualization Architecture (MVP and Qt-free DSP foundation in place)**:
    - The architectural contracts for standalone desktop visualization are established via [`VisualizationPresenter`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/include/module1/VisualizationPresenter.h) and [`IVisualizationView`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/include/module1/VisualizationView.h).
    - Rendering coordination (time-domain, constellation, waterfall, metadata, frame info) is fully tested headlessly via [`StubVisualizationView`](file:///home/namanoncode/Documents/GitHub/WAVIQ/module1/tests/test_module1.cpp#L1078) and `test_gui.cpp`.
    - Concrete graphical UI rendering is implemented natively in `QtVisualizationView` and relies solely on performant `QPainter` calls.
