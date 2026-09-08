@@ -88,11 +88,13 @@ private:
         view_->render_time_domain(current_signal_.samples());
         view_->render_constellation(current_signal_.samples());
 
-        // FFT is a DSP operation — it would be computed HERE (in the
+        // FFT and Waterfall are DSP operations — they would be computed HERE (in the
         // Presenter or by a DSP utility function), NOT in the View.
-        // When an FFT module is implemented:
+        // When an FFT/Spectrogram module is implemented:
         //   auto spectrum = dsp::compute_magnitude_spectrum(current_signal_.samples());
         //   view_->render_fft(spectrum);
+        //   auto spectrogram = dsp::compute_spectrogram(current_signal_.samples());
+        //   view_->render_waterfall(spectrogram);
     }
 
     IVisualizationView* view_;

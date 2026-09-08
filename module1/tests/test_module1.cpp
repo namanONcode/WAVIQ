@@ -122,13 +122,11 @@ void test_raw_iq_manual_metadata_works() {
     //   3. It propagates the caller-supplied 'source' tag through to
     //      SignalMetadata::metadata_source unchanged.
     //
-    // FIXTURE: capture_float32_nosidecar.iq
+    // FIXTURE: real_subset_float32_nosidecar.iq
     // -----------------------------------------------------------------------
-    // This file is an INTENTIONALLY SYNTHETIC fixture -- it was generated
-    // programmatically for testing purposes only and is NOT derived from the
-    // Mendeley dataset or any real radio capture.  Its content is a 1024-point
-    // unit-circle complex sinusoid (I = cos(2*pi*k/50), Q = sin(2*pi*k/50),
-    // k = 0..199; one full 7.2 deg/sample rotation at a 50-sample period).
+    // This file is a raw binary float32 IQ fixture extracted from the real
+    // Mendeley dataset fixture (real_subset.h5 frame 0). Its content is a
+    // 1024-point complex IQ capture.
     // No .sigmf-meta sidecar accompanies this file -- that absence is the
     // entire point: it exercises the manual-metadata code path in IqLoader.
     //
@@ -140,12 +138,12 @@ void test_raw_iq_manual_metadata_works() {
     //   sample_count = file_size_bytes / bytes_per_sample
     //
     // For this fixture and this metadata:
-    //   file_size_bytes  = 1600   (verified: ls -l capture_float32_nosidecar.iq)
+    //   file_size_bytes  = 8192   (verified: ls -l real_subset_float32_nosidecar.iq)
     //   sample_datatype  = "float32"  ->  Float32IqDecoder::bytes_per_sample()
     //                                  = 4 (I, little-endian float32)
     //                                  + 4 (Q, little-endian float32)
     //                                  = 8 bytes per complex sample
-    //   sample_count     = 1600 / 8 = 1024   (remainder = 0, perfectly aligned)
+    //   sample_count     = 8192 / 8 = 1024   (remainder = 0, perfectly aligned)
     //
     // The value 1024 is therefore a direct, arithmetic consequence of the
     // fixture's byte size and the float32 format declaration.  It was derived
@@ -760,7 +758,7 @@ void test_iq_sample_decoders() {
         // Big-endian test:
         // IEEE-754 binary32 big-endian representations:
         //   1.5f  = 0x3FC00000 -> { 0x3F, 0xC0, 0x00, 0x00 }
-        //  -2.5f  = 0xC01000000 -> { 0xC0, 0x20, 0x00, 0x00 }
+        //  -2.5f  = 0xC0200000 -> { 0xC0, 0x20, 0x00, 0x00 }
         const uint8_t raw_be[8] = {0x3F, 0xC0, 0x00, 0x00, 0xC0, 0x20, 0x00, 0x00};
         auto s_be = d32.decode(raw_be, sizeof(raw_be), ByteOrder::Big);
         check(s_be.size() == 1, "Float32 decoder decodes 1 sample from 8 bytes (BE)");
@@ -1084,6 +1082,7 @@ public:
     int time_domain_call_count = 0;
     int fft_call_count = 0;
     int constellation_call_count = 0;
+    int waterfall_call_count = 0;
     int metadata_call_count = 0;
     int frame_info_call_count = 0;
     int show_window_call_count = 0;
@@ -1114,6 +1113,11 @@ public:
             const std::vector<std::complex<float>>& samples) override {
         ++constellation_call_count;
         last_constellation_size = samples.size();
+    }
+
+    void render_waterfall(
+            const std::vector<std::vector<float>>& /*spectrogram*/) override {
+        ++waterfall_call_count;
     }
 
     void display_metadata(const module1::SignalMetadata& metadata) override {

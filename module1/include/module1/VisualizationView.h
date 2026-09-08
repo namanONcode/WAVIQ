@@ -56,6 +56,10 @@ public:
     virtual void render_constellation(
         const std::vector<std::complex<float>>& samples) = 0;
 
+    // Display waterfall (time-frequency domain) spectrogram.
+    virtual void render_waterfall(
+        const std::vector<std::vector<float>>& spectrogram) = 0;
+
     // Display signal metadata (sample rate, format, provenance, etc.).
     virtual void display_metadata(const SignalMetadata& metadata) = 0;
 

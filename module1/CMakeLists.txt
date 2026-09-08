@@ -3,6 +3,9 @@ project(module1_signal_io LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SNDFILE REQUIRED sndfile)
@@ -26,6 +29,29 @@ target_compile_options(module1_core PUBLIC ${SNDFILE_CFLAGS_OTHER})
 
 add_executable(module1_cli src/main.cpp)
 target_link_libraries(module1_cli PRIVATE module1_core)
+
+# Conditional GUI build
+find_package(Qt6 COMPONENTS Widgets OPTIONAL_COMPONENTS Test Gui)
+if(NOT Qt6_FOUND)
+    find_package(Qt5 COMPONENTS Widgets OPTIONAL_COMPONENTS Test Gui)
+endif()
+
+if(Qt6_FOUND OR Qt5_FOUND)
+    if(Qt6_FOUND)
+        set(QT_CORE_TARGET Qt6::Core)
+        set(QT_WIDGETS_TARGET Qt6::Widgets)
+    else()
+        set(QT_CORE_TARGET Qt5::Core)
+        set(QT_WIDGETS_TARGET Qt5::Widgets)
+    endif()
+
+    add_executable(module1_gui 
+        src/gui_main.cpp 
+        src/QtVisualizationView.cpp
+        include/module1/QtVisualizationView.h
+    )
+    target_link_libraries(module1_gui PRIVATE module1_core ${QT_WIDGETS_TARGET})
+endif()
 
 enable_testing()
 add_subdirectory(tests)
