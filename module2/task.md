@@ -1,0 +1,26 @@
+- `[x]` M1: C++/CMake foundation & Core Data Structures
+  - `[x]` Create project folder structure
+  - `[x]` Create CMakeLists.txt
+  - `[x]` Create SignalData.hpp
+  - `[x]` Create AnalysisResult.hpp
+- `[x]` M2: Signal Preprocessing
+- `[x]` M3: FFT/PSD
+- `[x]` M4: Parameter extraction
+- `[/]` M5: Symbol-rate estimation
+  - `[x]` Redesign SymbolRateEstimator.hpp (SymbolRateResult struct, 3 methods)
+  - `[x]` Implement SymbolRateEstimator.cpp (mag-squared, delay-multiply, combined)
+  - `[x]` Create SymbolRateEstimatorTests.cpp (BPSK, FSK, SNR sweep, edge cases)
+  - `[x]` Update CMakeLists.txt & main.cpp
+  - `[ ]` Build & verify all tests pass
+- `[x]` M6: Feature extraction
+  - `[x]` FeatureExtractor.hpp and .cpp implemented
+- `[x]` M7: Modulation classifier
+  - `[x]` DSPClassifier implemented
+  - `[x]` ModulationClassifier implemented
+- `[x]` M8: Synchronization
+  - `[x]` CarrierRecovery, TimingRecovery, MatchedFilter implemented
+- `[x]` M9: Demodulators
+  - `[x]` PSK, FSK, QAM Demodulators implemented (outputting LLRs)
+- `[x]` M10: Integration/Testing
+  - `[x]` AnalysisOrchestrator implemented linking M6-M9 pipeline
+  - `[x]` Verified Module 1 (ComplexSignal) and Module 2 (SignalData) codebase compatibility
