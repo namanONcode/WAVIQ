@@ -21,6 +21,8 @@
 #include "module1/IqSampleDecoder.h"
 #include "module1/LoaderExceptions.h"
 #include "module1/LoaderFactory.h"
+#include "module1/VisualizationPresenter.h"
+#include "module1/VisualizationView.h"
 #include "module1/WavLoader.h"
 
 using namespace module1;
@@ -59,8 +61,8 @@ std::string testdata(const std::string& filename) {
 void test_wav_mono() {
     std::printf("test_wav_mono\n");
     WavLoader loader;
-    ComplexSignal sig = loader.load(testdata("mono_pcm16.wav"));
-    check(sig.sample_count() == 1000, "mono WAV has 1000 samples");
+    ComplexSignal sig = loader.load(testdata("real_subset_mono.wav"));
+    check(sig.sample_count() == 1024, "mono WAV has 1024 samples");
     check(!sig.metadata().is_complex, "mono WAV is not marked complex");
     check(sig.metadata().channel_count == 1, "mono WAV reports 1 channel");
     check(sig.metadata().metadata_source == "wav_header", "mono WAV metadata_source is wav_header");
@@ -74,8 +76,8 @@ void test_wav_mono() {
 void test_wav_stereo_as_iq() {
     std::printf("test_wav_stereo_as_iq\n");
     WavLoader loader;
-    ComplexSignal sig = loader.load(testdata("iq_as_stereo.wav"));
-    check(sig.sample_count() == 1000, "stereo WAV has 1000 frames");
+    ComplexSignal sig = loader.load(testdata("real_subset.wav"));
+    check(sig.sample_count() == 1024, "stereo WAV has 1024 frames");
     check(sig.metadata().is_complex, "stereo WAV is marked complex");
     check(sig.metadata().channel_count == 2, "stereo WAV reports 2 channels");
 }
@@ -85,8 +87,8 @@ void test_wav_stereo_as_iq() {
 void test_raw_iq_with_sidecar() {
     std::printf("test_raw_iq_with_sidecar\n");
     IqLoader loader;
-    ComplexSignal sig = loader.load(testdata("capture_int16.iq"));
-    check(sig.sample_count() == 500, "sidecar IQ has 500 samples");
+    ComplexSignal sig = loader.load(testdata("real_subset_float32.iq"));
+    check(sig.sample_count() == 1024, "sidecar IQ has 1024 samples");
     check(approx(static_cast<float>(sig.sample_rate()), 1000000.0f), "sidecar IQ sample rate is 1e6");
     check(sig.metadata().metadata_source == "sigmf_sidecar", "sidecar IQ metadata_source is sigmf_sidecar");
 }
@@ -96,7 +98,7 @@ void test_raw_iq_without_metadata_refuses() {
     IqLoader loader;
     bool threw_missing = false;
     try {
-        loader.load(testdata("capture_float32_nosidecar.iq"));
+        loader.load(testdata("real_subset_float32_nosidecar.iq"));
     } catch (const MissingMetadataError& e) {
         threw_missing = true;
         bool has_sample_rate = false;
@@ -120,17 +122,15 @@ void test_raw_iq_manual_metadata_works() {
     //   3. It propagates the caller-supplied 'source' tag through to
     //      SignalMetadata::metadata_source unchanged.
     //
-    // FIXTURE: capture_float32_nosidecar.iq
+    // FIXTURE: real_subset_float32_nosidecar.iq
     // -----------------------------------------------------------------------
-    // This file is an INTENTIONALLY SYNTHETIC fixture -- it was generated
-    // programmatically for testing purposes only and is NOT derived from the
-    // Mendeley dataset or any real radio capture.  Its content is a 200-point
-    // unit-circle complex sinusoid (I = cos(2*pi*k/50), Q = sin(2*pi*k/50),
-    // k = 0..199; one full 7.2 deg/sample rotation at a 50-sample period).
+    // This file is a raw binary float32 IQ fixture extracted from the real
+    // Mendeley dataset fixture (real_subset.h5 frame 0). Its content is a
+    // 1024-point complex IQ capture.
     // No .sigmf-meta sidecar accompanies this file -- that absence is the
     // entire point: it exercises the manual-metadata code path in IqLoader.
     //
-    // WHY THE EXPECTED SAMPLE COUNT IS 200 (hardcoded derivation)
+    // WHY THE EXPECTED SAMPLE COUNT IS 1024 (hardcoded derivation)
     // -----------------------------------------------------------------------
     // The loader computes sample_count purely from the file size and the
     // bytes-per-sample for the declared datatype:
@@ -138,14 +138,14 @@ void test_raw_iq_manual_metadata_works() {
     //   sample_count = file_size_bytes / bytes_per_sample
     //
     // For this fixture and this metadata:
-    //   file_size_bytes  = 1600   (verified: ls -l capture_float32_nosidecar.iq)
+    //   file_size_bytes  = 8192   (verified: ls -l real_subset_float32_nosidecar.iq)
     //   sample_datatype  = "float32"  ->  Float32IqDecoder::bytes_per_sample()
     //                                  = 4 (I, little-endian float32)
     //                                  + 4 (Q, little-endian float32)
     //                                  = 8 bytes per complex sample
-    //   sample_count     = 1600 / 8 = 200   (remainder = 0, perfectly aligned)
+    //   sample_count     = 8192 / 8 = 1024   (remainder = 0, perfectly aligned)
     //
-    // The value 200 is therefore a direct, arithmetic consequence of the
+    // The value 1024 is therefore a direct, arithmetic consequence of the
     // fixture's byte size and the float32 format declaration.  It was derived
     // independently (via `wc -c` / Python) and is NOT obtained by running
     // IqLoader itself.
@@ -156,19 +156,19 @@ void test_raw_iq_manual_metadata_works() {
     // comparing it to itself would make this assertion vacuously true: it
     // would pass even if the loader silently dropped all samples, read twice
     // as many, or used the wrong bytes-per-sample.  The hardcoded constant
-    // 200 is the independent ground truth that the loader's byte-arithmetic
+    // 1024 is the independent ground truth that the loader's byte-arithmetic
     // must agree with; any loader bug that produces a wrong sample count will
     // cause this check to fail.
     // ========================================================================
     IqLoader loader;
     IqMetadataInput meta;
-    meta.sample_rate_hz = 500000.0;
+    meta.sample_rate_hz = 1000000.0;
     meta.sample_datatype = "float32";
     meta.byte_order = "little";
     meta.source = "manual_entry";
-    ComplexSignal sig = loader.load_with_metadata(testdata("capture_float32_nosidecar.iq"), meta);
-    // 200 = 1600 bytes / 8 bytes-per-float32-complex-sample (see derivation above).
-    check(sig.sample_count() == 200, "manually-supplied-metadata IQ has 200 samples");
+    ComplexSignal sig = loader.load_with_metadata(testdata("real_subset_float32_nosidecar.iq"), meta);
+    // 1024 = 1600 bytes / 8 bytes-per-float32-complex-sample (see derivation above).
+    check(sig.sample_count() == 1024, "manually-supplied-metadata IQ has 1024 samples");
     check(sig.metadata().metadata_source == "manual_entry", "manual IQ metadata_source is manual_entry");
 }
 
@@ -960,12 +960,12 @@ void test_hdf5_sample_rate_propagated() {
     // numeric rate value.  A bug that stored the rate as 0 or silently
     // discarded it would go undetected by the other tests.
     //
-    // Expected value: 250000.0 -- chosen as a realistic SDR sample rate that
+    // Expected value: 2102400.0 -- chosen as a realistic SDR sample rate that
     // is unlikely to coincide with any unintentional default.  Not obtained
     // from the C++ implementation.
     std::printf("test_hdf5_sample_rate_propagated\n");
     HdfIqFrameDataset ds(testdata("real_subset.h5"));
-    const double supplied_rate = 250000.0;
+    const double supplied_rate = 2102400.0;
     ComplexSignal sig = ds.load_frame(0, supplied_rate);
     check(sig.sample_rate() == supplied_rate,
           "load_frame propagates caller-supplied sample rate through metadata()");
@@ -1061,6 +1061,211 @@ void test_hdf5_all_frames_size_and_sum() {
     }
 }
 
+}
+
+// ============================================================================
+// MVP ARCHITECTURE TESTS — StubVisualizationView + VisualizationPresenter
+// ============================================================================
+// These tests validate the Model-View-Presenter architecture using a stub
+// View implementation and REAL signal data from the Mendeley real_subset.h5
+// fixture.  No synthetic data is used.
+//
+// The StubVisualizationView records all calls from the Presenter so tests
+// can verify the Presenter correctly coordinates between Model and View
+// without requiring an actual GUI toolkit.
+// ============================================================================
+
+class StubVisualizationView : public module1::IVisualizationView {
+public:
+    // Recorded state — tests inspect these after Presenter calls.
+    module1::VisualizationPresenter* bound_presenter = nullptr;
+    int time_domain_call_count = 0;
+    int fft_call_count = 0;
+    int constellation_call_count = 0;
+    int waterfall_call_count = 0;
+    int metadata_call_count = 0;
+    int frame_info_call_count = 0;
+    int show_window_call_count = 0;
+
+    size_t last_time_domain_size = 0;
+    size_t last_constellation_size = 0;
+    double last_sample_rate = 0.0;
+    std::string last_metadata_source;
+    std::string last_modulation_name;
+    int last_channel_condition = -1;
+    int last_snr_db = -999;
+
+    void set_presenter(module1::VisualizationPresenter* presenter) override {
+        bound_presenter = presenter;
+    }
+
+    void render_time_domain(
+            const std::vector<std::complex<float>>& samples) override {
+        ++time_domain_call_count;
+        last_time_domain_size = samples.size();
+    }
+
+    void render_fft(const std::vector<float>& /*magnitude_spectrum*/) override {
+        ++fft_call_count;
+    }
+
+    void render_constellation(
+            const std::vector<std::complex<float>>& samples) override {
+        ++constellation_call_count;
+        last_constellation_size = samples.size();
+    }
+
+    void render_waterfall(
+            const std::vector<std::vector<float>>& /*spectrogram*/) override {
+        ++waterfall_call_count;
+    }
+
+    void display_metadata(const module1::SignalMetadata& metadata) override {
+        ++metadata_call_count;
+        last_sample_rate = metadata.sample_rate_hz;
+        last_metadata_source = metadata.metadata_source;
+    }
+
+    void display_frame_info(
+            const std::string& modulation_name,
+            int channel_condition,
+            int snr_db) override {
+        ++frame_info_call_count;
+        last_modulation_name = modulation_name;
+        last_channel_condition = channel_condition;
+        last_snr_db = snr_db;
+    }
+
+    void show_window() override {
+        ++show_window_call_count;
+    }
+};
+
+namespace {
+
+void test_mvp_presenter_binds_to_view() {
+    // Verifies that constructing a Presenter with a View automatically
+    // calls set_presenter() to establish the bidirectional link.
+    std::printf("test_mvp_presenter_binds_to_view\n");
+    StubVisualizationView view;
+    VisualizationPresenter presenter(&view);
+    check(view.bound_presenter == &presenter,
+          "Presenter constructor calls set_presenter() on the View");
+}
+
+void test_mvp_on_signal_loaded_with_real_hdf5_data() {
+    // Loads a real frame from real_subset.h5 via HdfIqFrameDataset,
+    // passes it through the Presenter, and verifies the View received
+    // the correct rendering calls with the correct data sizes.
+    //
+    // This uses REAL Mendeley data — no synthetic sine waves.
+    std::printf("test_mvp_on_signal_loaded_with_real_hdf5_data\n");
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
+    ComplexSignal sig = ds.load_frame(0, 250000.0);
+
+    StubVisualizationView view;
+    VisualizationPresenter presenter(&view);
+
+    presenter.on_signal_loaded(sig);
+
+    check(view.time_domain_call_count == 1,
+          "on_signal_loaded triggers exactly 1 render_time_domain call");
+    check(view.constellation_call_count == 1,
+          "on_signal_loaded triggers exactly 1 render_constellation call");
+    check(view.metadata_call_count == 1,
+          "on_signal_loaded triggers exactly 1 display_metadata call");
+    check(view.last_time_domain_size == 1024,
+          "render_time_domain receives 1024 real samples from frame 0");
+    check(view.last_constellation_size == 1024,
+          "render_constellation receives 1024 real samples from frame 0");
+    check(view.last_sample_rate == 250000.0,
+          "display_metadata receives the caller-supplied sample rate");
+    check(view.last_metadata_source == "hdf5_manual_sample_rate",
+          "display_metadata receives correct metadata_source");
+    // FFT is not yet implemented — the View should NOT have been called.
+    check(view.fft_call_count == 0,
+          "on_signal_loaded does not call render_fft (FFT DSP not yet wired)");
+    // Frame info is only sent via on_frame_loaded, not on_signal_loaded.
+    check(view.frame_info_call_count == 0,
+          "on_signal_loaded does not call display_frame_info");
+}
+
+void test_mvp_on_frame_loaded_with_real_labels() {
+    // Loads frame 5 from real_subset.h5 with its labels and passes
+    // both through the Presenter's on_frame_loaded() path.
+    // Verifies that the View receives both signal rendering AND label info.
+    //
+    // Expected labels for frame 5 (independently verified from h5py):
+    //   modulation_id = 0 (BPSK), channel_condition = 0, snr_db = 20
+    std::printf("test_mvp_on_frame_loaded_with_real_labels\n");
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
+    ComplexSignal sig = ds.load_frame(5, 250000.0);
+    FrameLabels labels = ds.labels_for_frame(5);
+
+    StubVisualizationView view;
+    VisualizationPresenter presenter(&view);
+
+    presenter.on_frame_loaded(sig, labels, "BPSK");
+
+    // Signal rendering calls
+    check(view.time_domain_call_count == 1,
+          "on_frame_loaded triggers render_time_domain");
+    check(view.constellation_call_count == 1,
+          "on_frame_loaded triggers render_constellation");
+    check(view.metadata_call_count == 1,
+          "on_frame_loaded triggers display_metadata");
+    check(view.last_time_domain_size == 1024,
+          "frame 5 has 1024 samples");
+
+    // Frame label calls
+    check(view.frame_info_call_count == 1,
+          "on_frame_loaded triggers exactly 1 display_frame_info call");
+    check(view.last_modulation_name == "BPSK",
+          "display_frame_info receives modulation name BPSK");
+    check(view.last_channel_condition == 0,
+          "display_frame_info receives channel_condition 0 (clean)");
+    check(view.last_snr_db == 20,
+          "display_frame_info receives snr_db 20");
+
+    // Presenter state
+    check(presenter.has_labels(),
+          "Presenter reports has_labels() == true after on_frame_loaded");
+    check(presenter.current_labels().modulation_id == 0,
+          "Presenter stores modulation_id from real labels");
+}
+
+void test_mvp_presenter_with_null_view() {
+    // The Presenter must gracefully handle a null View pointer.
+    // This is an error-handling test (no real data needed).
+    std::printf("test_mvp_presenter_with_null_view\n");
+    VisualizationPresenter presenter(nullptr);
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
+    ComplexSignal sig = ds.load_frame(0, 1.0);
+    // Must not crash.
+    presenter.on_signal_loaded(sig);
+    check(presenter.current_signal().sample_count() == 1024,
+          "Presenter stores signal even with null View");
+}
+
+void test_mvp_dsp_separated_from_view() {
+    // Architectural invariant: the StubVisualizationView never performs
+    // any DSP.  After on_signal_loaded, the View's render_fft should NOT
+    // have been called (FFT is DSP, handled by the Presenter/DSP layer).
+    // The View only receives pre-computed data.
+    std::printf("test_mvp_dsp_separated_from_view\n");
+    HdfIqFrameDataset ds(testdata("real_subset.h5"));
+    ComplexSignal sig = ds.load_frame(0, 250000.0);
+
+    StubVisualizationView view;
+    VisualizationPresenter presenter(&view);
+    presenter.on_signal_loaded(sig);
+
+    check(view.fft_call_count == 0,
+          "View never computes FFT — DSP is separate from GUI");
+    check(view.time_domain_call_count == 1,
+          "View receives pre-processed time-domain data from Presenter");
+}
+
 } // namespace
 
 int main() {
@@ -1092,6 +1297,11 @@ int main() {
     test_half_to_float_edge_cases();
     test_hdf5_sample_rate_propagated();
     test_hdf5_all_frames_size_and_sum();
+    test_mvp_presenter_binds_to_view();
+    test_mvp_on_signal_loaded_with_real_hdf5_data();
+    test_mvp_on_frame_loaded_with_real_labels();
+    test_mvp_presenter_with_null_view();
+    test_mvp_dsp_separated_from_view();
 
     std::printf("\n%d/%d checks passed\n", g_checks - g_failures, g_checks);
     return g_failures == 0 ? 0 : 1;
